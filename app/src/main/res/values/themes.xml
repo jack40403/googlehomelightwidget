@@ -2,16 +2,4 @@
 <resources>
 
   <style name="Theme.GoogleHomeAPISampleApp" parent="android:Theme.Material.Light.NoActionBar" />
-
-  <style name="Theme.GoogleHomeAPISampleApp.WidgetOverlay" parent="android:style/Theme.Material.NoActionBar">
-    <item name="android:windowIsTranslucent">true</item>
-    <item name="android:windowBackground">@android:color/transparent</item>
-    <item name="android:windowNoTitle">true</item>
-    <item name="android:backgroundDimEnabled">true</item>
-    <item name="android:backgroundDimAmount">0.55</item>
-    <item name="android:windowDisablePreview">true</item>
-    <item name="android:statusBarColor">@android:color/transparent</item>
-    <item name="android:navigationBarColor">@android:color/transparent</item>
-    <item name="android:windowLightStatusBar">false</item>
-  </style>
 </resources>

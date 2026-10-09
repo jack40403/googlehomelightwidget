@@ -15,12 +15,13 @@ limitations under the License.
 
 package com.example.googlehomeapisampleapp.view.devices
 
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -28,11 +29,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Pause
@@ -42,8 +43,6 @@ import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -57,13 +56,16 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -78,6 +80,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.googlehomeapisampleapp.MainActivity
 import com.example.googlehomeapisampleapp.extension.thermostat.getCoolingSetpoint
@@ -98,13 +104,13 @@ import com.example.googlehomeapisampleapp.view.lights.LightDialControl
 import com.example.googlehomeapisampleapp.viewmodel.HomeAppViewModel
 import com.example.googlehomeapisampleapp.viewmodel.devices.BasicInformationUiState
 import com.example.googlehomeapisampleapp.viewmodel.devices.DeviceViewModel
-import com.example.googlehomeapisampleapp.widget.LightWidgetStore
-import com.example.googlehomeapisampleapp.widget.updateLightDialWidgets
 import com.google.home.ConnectivityState
 import com.google.home.google.ExtendedColorControl
 import com.google.home.DeviceType
 import com.google.home.HomeException
 import com.google.home.Trait
+import com.google.home.google.GoogleCameraDevice
+import com.google.home.google.GoogleDoorbellDevice
 import com.google.home.matter.standard.BooleanState
 import com.google.home.matter.standard.DoorLock
 import com.google.home.matter.standard.DoorLockTrait
@@ -137,6 +143,8 @@ fun DeviceView(homeAppVM: HomeAppViewModel) {
   deviceVM?.let { vm ->
     val context = LocalContext.current
     val deviceType by vm.type.collectAsStateWithLifecycle()
+    val isCameraDevice = deviceType.factory == GoogleCameraDevice
+    val isDoorbellDevice = deviceType.factory == GoogleDoorbellDevice
 
     val name by vm.name.collectAsStateWithLifecycle()
     val deviceTypeName by vm.typeName.collectAsStateWithLifecycle()
@@ -160,24 +168,20 @@ fun DeviceView(homeAppVM: HomeAppViewModel) {
       }
     }
 
-    Column(
-      modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
-    ) {
+    Column(modifier = Modifier.fillMaxSize()) {
       Spacer(Modifier.height(64.dp))
 
+      // Unified Header Row
       Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+        verticalAlignment = Alignment.CenterVertically
       ) {
-        IconButton(onClick = { scope.launch { homeAppVM.selectedDeviceVM.emit(null) } }) {
-          Icon(Icons.Default.ArrowBack, contentDescription = "Back")
-        }
         Text(
           text = name,
-          style = MaterialTheme.typography.headlineSmall,
+          fontSize = 28.sp,
           modifier = Modifier.weight(1f),
           maxLines = 1,
-          overflow = TextOverflow.Ellipsis,
+          overflow = TextOverflow.Ellipsis
         )
 
         Box {
@@ -213,10 +217,8 @@ fun DeviceView(homeAppVM: HomeAppViewModel) {
         }
       }
 
-      Column(
-        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())
-          .padding(horizontal = 16.dp, vertical = 8.dp),
-      ) {
+      // Body Content
+      Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         ControlListComponent(homeAppVM)
       }
     }
@@ -318,119 +320,43 @@ fun DeviceView(homeAppVM: HomeAppViewModel) {
 fun ControlListComponent(homeAppVM: HomeAppViewModel) {
 
   val deviceVM: DeviceViewModel = homeAppVM.selectedDeviceVM.collectAsState().value ?: return
-  val context = LocalContext.current
-  val widgetScope = rememberCoroutineScope()
   val deviceType: DeviceType by deviceVM.type.collectAsStateWithLifecycle()
   val deviceTypeName: String by deviceVM.typeName.collectAsStateWithLifecycle()
   val deviceTraits: List<Trait> = deviceVM.traits.collectAsState().value
-  val brightnessTrait = deviceTraits.filterIsInstance<LevelControl>().firstOrNull()
-  val colorTrait = deviceTraits.filterIsInstance<ExtendedColorControl>().firstOrNull()
-  val onOffTrait = deviceTraits.filterIsInstance<OnOff>().firstOrNull()
-  val isConnected = deviceType.metadata.sourceConnectivity.connectivityState == ConnectivityState.ONLINE ||
-    deviceType.metadata.sourceConnectivity.connectivityState == ConnectivityState.PARTIALLY_ONLINE
-  val widgetDeviceIds = setOf(deviceVM.id)
+
+  val isControlEnabled = true
 
   Column(
-    modifier = Modifier.fillMaxWidth(),
-    verticalArrangement = Arrangement.spacedBy(12.dp),
+    Modifier
+      .padding(horizontal = 16.dp, vertical = 8.dp)
+      .fillMaxWidth()
   ) {
-    Card(
-      modifier = Modifier.fillMaxWidth(),
-      shape = MaterialTheme.shapes.large,
-      colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
-    ) {
-      Column(Modifier.fillMaxWidth().padding(18.dp)) {
-        Text(
-          deviceTypeName,
-          style = MaterialTheme.typography.titleLarge,
-          color = MaterialTheme.colorScheme.onPrimaryContainer,
-        )
-        Text(
-          if (isConnected) "Online and ready" else "Offline",
-          style = MaterialTheme.typography.bodyMedium,
-          color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f),
-        )
-      }
-    }
-  if (onOffTrait != null) {
-    Button(
-      onClick = {
-        LightWidgetStore.select(
-          context = context,
-          deviceId = deviceVM.id,
-          displayName = deviceVM.name.value,
-          isOn = onOffTrait.onOff == true,
-          brightnessLevel = brightnessTrait?.currentLevel?.toInt(),
-        )
-        widgetScope.launch { updateLightDialWidgets(context) }
-      },
-      modifier = Modifier.fillMaxWidth(),
-      shape = MaterialTheme.shapes.medium,
-    ) {
-      Text("Add light control widget")
-    }
-  }
-  if (brightnessTrait != null && colorTrait != null) {
-    Card(
-      modifier = Modifier.fillMaxWidth(),
-      shape = MaterialTheme.shapes.large,
-      colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-    ) {
-      LightDialControl(
-        brightnessTrait = brightnessTrait,
-        colorTrait = colorTrait,
-        isEnabled = isConnected,
-        scope = rememberCoroutineScope(),
-        onError = { message -> MainActivity.showWarning(homeAppVM, message) },
-        onBrightnessChanged = { level ->
-          homeAppVM.syncWidgetAfterDeviceAction(
-            deviceIds = widgetDeviceIds,
-            brightnessLevel = level,
-            isOn = level > 0,
-          )
-        },
-        onColorChanged = { hue, saturation ->
-          homeAppVM.syncWidgetAfterDeviceAction(
-            deviceIds = widgetDeviceIds,
-            isOn = onOffTrait?.onOff,
-            brightnessLevel = brightnessTrait?.currentLevel?.toInt(),
-            colorHue = hue,
-            colorSaturation = saturation,
-          )
-        },
-      )
-    }
+    Text(deviceTypeName, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
   }
 
-  deviceTraits.forEach { trait ->
-    if (trait !is ExtendedColorControl && !(trait is LevelControl && colorTrait != null)) {
-      ControlListItem(
-        trait = trait,
-        type = deviceType,
-        onPowerChanged = { enabled ->
-          homeAppVM.syncWidgetAfterDeviceAction(widgetDeviceIds, isOn = enabled)
-        },
-        onBrightnessChanged = { level ->
-          homeAppVM.syncWidgetAfterDeviceAction(
-            deviceIds = widgetDeviceIds,
-            brightnessLevel = level,
-            isOn = level > 0,
-          )
-        },
-      )
-    }
+  val brightnessTrait = deviceTraits.filterIsInstance<LevelControl>().firstOrNull()
+  val colorTrait = deviceTraits.filterIsInstance<ExtendedColorControl>().firstOrNull()
+  if (brightnessTrait != null && colorTrait != null) {
+    val isConnected = deviceType.metadata.sourceConnectivity.connectivityState == ConnectivityState.ONLINE ||
+      deviceType.metadata.sourceConnectivity.connectivityState == ConnectivityState.PARTIALLY_ONLINE
+    LightDialControl(
+      brightnessTrait = brightnessTrait,
+      colorTrait = colorTrait,
+      isEnabled = isControlEnabled && isConnected,
+      scope = rememberCoroutineScope(),
+      onError = { message -> MainActivity.showWarning(homeAppVM, message) },
+    )
   }
+
+  for (trait in deviceTraits) {
+    if (trait !is ExtendedColorControl && !(trait is LevelControl && colorTrait != null)) {
+      ControlListItem(trait, deviceType, enabled = isControlEnabled)
+    }
   }
 }
 
 @Composable
-fun ControlListItem(
-  trait: Trait,
-  type: DeviceType,
-  enabled: Boolean = true,
-  onPowerChanged: suspend (Boolean) -> Unit = {},
-  onBrightnessChanged: suspend (Int) -> Unit = {},
-) {
+fun ControlListItem(trait: Trait, type: DeviceType, enabled: Boolean = true) {
   val scope: CoroutineScope = rememberCoroutineScope()
 
   // Make connectivity reactive by keying off the type changes
@@ -441,13 +367,8 @@ fun ControlListItem(
   }
   val isInteractive = enabled && isConnected
 
-  Card(
-    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-    shape = MaterialTheme.shapes.large,
-    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-  ) {
-    Box(Modifier.padding(16.dp)) {
-      when (trait) {
+  Box(Modifier.padding(horizontal = 24.dp, vertical = 8.dp)) {
+    when (trait) {
       is OnOff -> {
         Column(Modifier.fillMaxWidth()) {
           Text(trait.factory.toString(), fontSize = 20.sp)
@@ -460,7 +381,6 @@ fun ControlListItem(
             scope.launch {
               try {
                 if (state) trait.on() else trait.off()
-                onPowerChanged(state)
               } catch (e: HomeException) {
                 MainActivity.showWarning(this, "Toggling device on/off failed: ${e.message}")
               }
@@ -512,7 +432,6 @@ fun ControlListItem(
                         optionsMask = LevelControlTrait.OptionsBitmap(),
                         optionsOverride = LevelControlTrait.OptionsBitmap()
                       )
-                      onBrightnessChanged(volumePercent.toInt())
                     } catch (e: HomeException) {
                       MainActivity.showWarning(this, "Volume control failed: ${e.message}")
                     }
@@ -537,7 +456,6 @@ fun ControlListItem(
                       optionsMask = LevelControlTrait.OptionsBitmap(),
                       optionsOverride = LevelControlTrait.OptionsBitmap()
                     )
-                    onBrightnessChanged(value.toInt())
                   } catch (e: HomeException) {
                     MainActivity.showWarning(this, "Level control command failed: ${e.message}")
                   }
@@ -722,8 +640,7 @@ fun ControlListItem(
         }
       }
 
-        else -> Unit
-      }
+      else -> return
     }
   }
 }

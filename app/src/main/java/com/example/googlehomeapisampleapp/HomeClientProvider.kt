@@ -15,12 +15,16 @@ limitations under the License.
 
 package com.example.googlehomeapisampleapp
 
+import android.accounts.Account
 import android.content.Context
 import android.util.Log
+import com.google.home.FactoryRegistry
 import com.google.home.Home
 import com.google.home.HomeClient
 import com.google.home.HomeConfig
+import com.google.home.UserAccount
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Dispatchers
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.time.measureTimedValue
@@ -28,7 +32,7 @@ import kotlin.time.measureTimedValue
 
 /**
  * Provides a singleton instance of [HomeClient]. This class is responsible for creating and managing
- * the [HomeClient] instance.
+ * the [HomeClient] instance, including handling account switching.
  *
  * @property applicationContext The application context.
  * @property homeConfig The configuration for the [HomeClient].
@@ -37,6 +41,7 @@ import kotlin.time.measureTimedValue
 class HomeClientProvider @Inject constructor(
   @ApplicationContext private val applicationContext: Context,
   private val homeConfig: HomeConfig,
+  private val factoryRegistry: FactoryRegistry,
 ) {
 
   private var homeClient: HomeClient? = null
@@ -56,19 +61,56 @@ class HomeClientProvider @Inject constructor(
       if (homeClient == null) {
         Log.d(TAG, "create a new HomeClient instance since homeClient is null")
         Log.d(TAG, "getClient: homeConfig.homePlatformScope: ${homeConfig.homePlatformScope}")
-        homeClient = createHomeClient(homeConfig)
+        homeClient = createHomeClient("", homeConfig)
       }
       return homeClient!!
     }
   }
 
-  private fun createHomeClient(config: HomeConfig): HomeClient {
+  /**
+   * Switches the current account and re-initializes the [HomeClient].
+   *
+   * @param userId The ID of the new user account.
+   */
+  fun switchAccount(userId: String, serverClientId: String) {
+    Log.d(TAG, "applicationContext.packageName: ${applicationContext.packageName}")
+    Log.d(TAG, "serverClientId: $serverClientId")
+
+    val config = HomeConfig(
+      coroutineContext = Dispatchers.IO,
+      factoryRegistry = factoryRegistry,
+      serverClientId = serverClientId,
+      // If you are not using advanced camera features, you should continue to use the original
+      // scope by changing this to HOME_PLATFORM_SCOPE_VERSION_1.
+      homePlatformScope = HomeConfig.HomePlatformScope.HOME_PLATFORM_SCOPE_VERSION_2
+    )
+    Log.d(TAG, "switchAccount: config.homePlatformScope: ${config.homePlatformScope}")
+    Log.i(TAG, "AccountManager switching account to $userId")
+    homeClient = createHomeClient(userId, config)
+  }
+
+  private fun createHomeClient(userId: String, config: HomeConfig): HomeClient {
     val client = measureTimedValue {
-      Log.i(TAG, "createHomeClient without a provided account")
-      Home.getClient(applicationContext, homeConfig = config)
+      if (userId.isEmpty()) {
+        Log.i(TAG, "createHomeClient without account")
+        Home.getClient(applicationContext, homeConfig = config)
+      } else {
+        Log.i(TAG, "createHomeClient with account $userId")
+        Home.getClient(
+          applicationContext,
+          account = lazy {
+            UserAccount.GoogleAccount(
+              account = Account(
+                userId,
+                "com.google"
+              )
+            )
+          },
+          homeConfig = config,
+        )
+      }
     }.also {
       Log.i(TAG, "HomeSDK construction took ${it.duration.inWholeMilliseconds} ms.")
     }
-    return checkNotNull(client.value) { "HomeClient is null. Ensure createClient() succeeded." }
-  }
+    return checkNotNull(client.value) { "HomeClient is null. Ensure createClient() succeeded." }  }
 }

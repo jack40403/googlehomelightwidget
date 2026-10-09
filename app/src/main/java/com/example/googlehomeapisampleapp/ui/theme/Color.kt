@@ -17,16 +17,12 @@ package com.example.googlehomeapisampleapp.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-val TealPrimary = Color(0xFF006A6A)
-val TealPrimaryContainer = Color(0xFF6FF7F5)
-val SlateSecondary = Color(0xFF4F5F7A)
-val CoralTertiary = Color(0xFF7C526B)
-val AppBackground = Color(0xFFF7F9FC)
-val AppSurfaceVariant = Color(0xFFE2E7EC)
+// Color values for dark theme:
+val Purple80 = Color(0xFFD0BCFF)
+val PurpleGrey80 = Color(0xFFCCC2DC)
+val Pink80 = Color(0xFFEFB8C8)
 
-val TealPrimaryDark = Color(0xFF4CDAD7)
-val TealPrimaryContainerDark = Color(0xFF004F4F)
-val SlateSecondaryDark = Color(0xFFB7C9E8)
-val CoralTertiaryDark = Color(0xFFF0B6D9)
-val AppBackgroundDark = Color(0xFF101416)
-val AppSurfaceDark = Color(0xFF171D1F)
+// Color values for light theme:
+val Purple40 = Color(0xFF6650a4)
+val PurpleGrey40 = Color(0xFF625b71)
+val Pink40 = Color(0xFF7D5260)

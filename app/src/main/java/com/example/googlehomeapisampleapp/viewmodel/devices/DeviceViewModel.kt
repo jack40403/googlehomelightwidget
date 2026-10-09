@@ -30,8 +30,11 @@ import com.google.home.Trait
 import com.google.home.TraitFactory
 import com.google.home.automation.UnknownDeviceType
 import com.google.home.google.Assistant
+import com.google.home.google.GoogleCameraDevice
 import com.google.home.google.GoogleDisplayDevice
+import com.google.home.google.GoogleDoorbellDevice
 import com.google.home.google.GoogleTVDevice
+import com.google.home.google.WebRtcLiveView
 import com.google.home.matter.standard.BasicInformation
 import com.google.home.matter.standard.BooleanState
 import com.google.home.matter.standard.ColorTemperatureLightDevice
@@ -55,6 +58,7 @@ import com.google.home.matter.standard.OnOffLightDevice
 import com.google.home.matter.standard.OnOffLightSwitchDevice
 import com.google.home.matter.standard.OnOffPluginUnitDevice
 import com.google.home.matter.standard.OnOffSensorDevice
+import com.google.home.matter.standard.RootNodeDevice
 import com.google.home.matter.standard.SpeakerDevice
 import com.google.home.matter.standard.TemperatureMeasurement
 import com.google.home.matter.standard.TemperatureSensorDevice
@@ -132,7 +136,7 @@ class DeviceViewModel(val device: HomeDevice) : ViewModel() {
   /**
    * Deletes the device. Checks for decommission eligibility before attempting to delete.
    */
-  fun deleteDevice(onCompleted: (Boolean) -> Unit = {}) {
+  fun deleteDevice() {
     viewModelScope.launch {
       try {
         _uiEventFlow.emit(UiEvent.ShowToast("GHP isMatterDevice: ${device.isMatterDevice}"))
@@ -145,17 +149,14 @@ class DeviceViewModel(val device: HomeDevice) : ViewModel() {
         if (eligibility is DecommissionEligibility.Eligible || eligibility is DecommissionEligibility.EligibleWithSideEffects) {
           device.decommissionDevice()
           _uiEventFlow.emit(UiEvent.ShowToast("Device deleted successfully."))
-          onCompleted(true)
           delay(500)
           _uiEventFlow.emit(UiEvent.NavigateBack)
         } else {
           _uiEventFlow.emit(UiEvent.ShowToast("This device cannot be deleted. It is not eligible for decommissioning."))
-          onCompleted(false)
         }
       } catch (e: Exception) {
         Log.e("DeviceViewModel", "Error deleting device: ${e.message}")
         _uiEventFlow.emit(UiEvent.ShowToast("Error deleting device: ${e.message}"))
-        onCompleted(false)
       }
     }
   }
@@ -174,12 +175,14 @@ class DeviceViewModel(val device: HomeDevice) : ViewModel() {
        */
       val fallbackPriorityOrder = listOf(
         ThermostatDevice::class,
+        GoogleDoorbellDevice::class,
         WindowCoveringDevice::class,
         FanDevice::class,
         DoorLockDevice::class,
         SpeakerDevice::class,
         GoogleTVDevice::class,
         DimmableLightDevice::class,
+        GoogleCameraDevice::class,
         OnOffLightDevice::class,
         TemperatureSensorDevice::class,
       )
@@ -214,13 +217,29 @@ class DeviceViewModel(val device: HomeDevice) : ViewModel() {
       connectivity = primaryType.metadata.sourceConnectivity.connectivityState
 
       // Container for list of supported traits present on the primary device type:
-      val supportedTraits: List<Trait> = getSupportedTraits(primaryType.traits(), primaryType)
+      // FIX: Pass the current typeSet (all device types) and primaryType to getSupportedTraits
+      val supportedTraits: List<Trait> = getSupportedTraits(primaryType.traits(), typeSet, primaryType)
 
       // Store the primary type as the device type:
       type.emit(primaryType)
 
-      val emittedTypeName = nameMap[primaryType.factory] ?: "Unsupported Device"
+      // ------------------------------------------------------------------
+      // *** DIRECT NAME OVERRIDE FOR UNRECOGNIZED CAMERA DEVICE ***
+      var emittedTypeName = nameMap[primaryType.factory] ?: "Unsupported Device"
+
+      // Check if the device is the generic RootNodeDevice AND matches the target camera's VID/PID
+      if (primaryType is RootNodeDevice) {
+        val basicInfo = primaryType.standardTraits.basicInformation
+        // Re-added .toInt() conversion here:
+        if (basicInfo?.vendorId?.toInt() == ONN_CAMERA_VID && basicInfo.productId?.toInt() == ONN_CAMERA_PID) {
+          // Manually override the name string
+          emittedTypeName = "Camera"
+        }
+      }
+
+      // Determine the name for this type and store:
       typeName.emit(emittedTypeName)
+      // ------------------------------------------------------------------
 
       // From the primary type, get the supported traits:
       traits.emit(supportedTraits)
@@ -231,14 +250,29 @@ class DeviceViewModel(val device: HomeDevice) : ViewModel() {
   }
 
   /**
-   * Determines which traits reported by the device should be considered supported in the sample app.
+   * Determines which traits reported by the device should be considered "supported"
+   * in the sample app, including a whitelist for the Onn camera.
    */
-  fun getSupportedTraits(traits: Set<Trait>, primaryType: DeviceType): List<Trait> {
+  fun getSupportedTraits(traits: Set<Trait>, allDeviceTypes: Set<DeviceType>, primaryType: DeviceType) : List<Trait> {
     val supportedTraits: MutableList<Trait> = mutableListOf()
 
+    // FIX: Use the passed allDeviceTypes parameter instead of device.types().value
+    // Check if this device is the whitelisted Onn camera
+    val isWhitelistedCamera = allDeviceTypes.any { deviceType ->
+      // Re-added .toInt() conversion here:
+      deviceType is RootNodeDevice &&
+        deviceType.standardTraits.basicInformation?.vendorId?.toInt() == ONN_CAMERA_VID &&
+        deviceType.standardTraits.basicInformation?.productId?.toInt() == ONN_CAMERA_PID
+    }
+
     for (trait in traits) {
+      // 1. Check if the trait is in the general supported list
       val isGenerallySupported = trait.factory in HomeModule_ProvideSupportedTraitsFactory().get()
-      if (isGenerallySupported)
+
+      // 2. Check if the device is the whitelisted camera AND the trait is WebRtcLiveView
+      val isCameraTraitOverride = isWhitelistedCamera && trait.factory == WebRtcLiveView
+
+      if (isGenerallySupported || isCameraTraitOverride)
         supportedTraits.add(trait)
     }
     //For GoogleTVDevice, traits are sorted to ensure consistent order (OnOff first, MediaPlayback second).
@@ -255,6 +289,10 @@ class DeviceViewModel(val device: HomeDevice) : ViewModel() {
   }
 
   companion object {
+    // Define the specific VID/PID for your camera
+    private const val ONN_CAMERA_VID = 5502
+    private const val ONN_CAMERA_PID = 4233
+
     // Map determining which trait value is going to be displayed as status for this device:
     val statusMap: Map<DeviceTypeFactory<out DeviceType>, TraitFactory<out Trait>> = mapOf(
       ColorTemperatureLightDevice to OnOff,
@@ -264,7 +302,9 @@ class DeviceViewModel(val device: HomeDevice) : ViewModel() {
       ExtendedColorLightDevice to OnOff,
       FanDevice to FanControl,
       GenericSwitchDevice to OnOff,
+      GoogleCameraDevice to WebRtcLiveView,
       GoogleDisplayDevice to OnOff,
+      GoogleDoorbellDevice to WebRtcLiveView,
       GoogleTVDevice to OnOff,
       LightSensorDevice to IlluminanceMeasurement,
       OccupancySensorDevice to OccupancySensing,
@@ -287,7 +327,9 @@ class DeviceViewModel(val device: HomeDevice) : ViewModel() {
       ExtendedColorLightDevice to "Light",
       FanDevice to "Fan",
       GenericSwitchDevice to "Switch",
+      GoogleCameraDevice to "Camera",
       GoogleDisplayDevice to "Hub",
+      GoogleDoorbellDevice to "Doorbell",
       GoogleTVDevice to "TV",
       LightSensorDevice to "Sensor",
       OccupancySensorDevice to "Sensor",
@@ -309,6 +351,37 @@ class DeviceViewModel(val device: HomeDevice) : ViewModel() {
      * @return A string representing the device's status.
      */
     fun <T : Trait?> getDeviceStatus(type: DeviceType, traits: List<T>): String {
+
+      // ------------------------------------------------------------------
+      // *** STATUS OVERRIDE FOR GENERIC CAMERA DEVICE ***
+      // Check if the generic RootNodeDevice is the specific camera, and override the status lookup.
+      if (type is RootNodeDevice) {
+        val basicInfo = type.standardTraits.basicInformation
+        // Re-added .toInt() conversion here:
+        if (basicInfo?.vendorId?.toInt() == ONN_CAMERA_VID && basicInfo.productId?.toInt() == ONN_CAMERA_PID) {
+
+          // Since we know it's a camera, we bypass the map lookup and manually set the target trait
+          // to the one we expect for a camera (WebRtcLiveView).
+          val targetTrait: TraitFactory<out Trait> = WebRtcLiveView
+
+          // Proceed with standard status checks using the overridden targetTrait
+          if (type.metadata.sourceConnectivity.connectivityState != ConnectivityState.ONLINE &&
+            type.metadata.sourceConnectivity.connectivityState != ConnectivityState.PARTIALLY_ONLINE
+          )
+            return "Offline"
+
+          // Check if the traits list (which is now guaranteed to include WebRtcLiveView if the device reported it)
+          // actually contains the required trait.
+          if (traits.none { it!!.factory == targetTrait })
+          // This indicates the device is online and is the correct model,
+          // but failed to report the necessary video trait (WebRtcLiveView).
+            return "Video trait not present"
+
+          // Found the trait, now get the status
+          return getTraitStatus(traits.first { it!!.factory == targetTrait }, type)
+        }
+      }
+      // ------------------------------------------------------------------
 
       // Normal flow: Get target trait from the map based on the device's factory
       val targetTrait: TraitFactory<out Trait>? = statusMap[type.factory]
@@ -435,6 +508,16 @@ class DeviceViewModel(val device: HomeDevice) : ViewModel() {
 
         is Thermostat -> {
           trait.systemMode.toString()
+        }
+
+        is WebRtcLiveView -> {
+          // Check the connectivity state of the device type
+          if (type.metadata.sourceConnectivity.connectivityState == ConnectivityState.ONLINE ||
+            type.metadata.sourceConnectivity.connectivityState == ConnectivityState.PARTIALLY_ONLINE) {
+            "Online"
+          } else {
+            "Offline"
+          }
         }
 
         is WindowCovering -> {

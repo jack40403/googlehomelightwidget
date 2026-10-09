@@ -16,9 +16,7 @@ limitations under the License.
 package com.example.googlehomeapisampleapp
 
 import android.util.Log
-import android.webkit.WebView
 import androidx.activity.ComponentActivity
-import com.google.android.gms.common.GoogleApiAvailability
 import com.google.home.ConsentScreenOptions
 import com.google.home.ForcePermissionFlow
 import com.google.home.HomeClient
@@ -27,7 +25,6 @@ import com.google.home.PermissionsResult
 import com.google.home.PermissionsResultStatus
 import com.google.home.PermissionsState
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -48,7 +45,7 @@ class PermissionsManager(
   var currentStructureIdProvider: (() -> String?)? = null
 
   var isSignedIn: MutableStateFlow<Boolean> = MutableStateFlow(false)
-  private val _isPermissionUpdated = MutableSharedFlow<Unit>(replay = 1, extraBufferCapacity = 1)
+  private val _isPermissionUpdated = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
   val permissionUpdatedEvent = _isPermissionUpdated.asSharedFlow()
   var isInitialized: MutableStateFlow<Boolean> = MutableStateFlow(false)
 
@@ -61,30 +58,37 @@ class PermissionsManager(
 
   private fun checkPermissions() {
     scope.launch {
-      try {
-        client.hasPermissions().collectLatest { state ->
-          if (state == PermissionsState.PERMISSIONS_STATE_UNINITIALIZED) {
-            return@collectLatest
-          }
-          reportPermissionState(state)
-          val isPermissionStateGranted = state == PermissionsState.GRANTED
-          isSignedIn.emit(isPermissionStateGranted)
-          _isPermissionUpdated.emit(Unit)
-          Log.d(TAG, "Emit new isSignedIn=${isSignedIn.value}, state=$state")
-          if (!isInitialized.value) {
-            isInitialized.emit(true)
-          }
+      // Block here to subscribe permission state changes
+      client.hasPermissions().collectLatest { state ->
+        if (state == PermissionsState.PERMISSIONS_STATE_UNINITIALIZED) {
+          return@collectLatest
         }
-      } catch (e: CancellationException) {
-        throw e
-      } catch (e: Exception) {
-        Log.e(TAG, "Unable to observe Home permission state", e)
-        MainActivity.showError(
-          this@PermissionsManager,
-          "Unable to read Google Home permissions: ${e.message ?: e.javaClass.simpleName}",
-        )
+        // Report the permission state:
+        reportPermissionState(state)
+        // Adjust the sign-in status according to permission state:
+        val isPermissionStateGranted = state == PermissionsState.GRANTED
+        // Emit the Sign-In state
+        isSignedIn.emit(isPermissionStateGranted)
+        // Emit every Permission Updated event
+        _isPermissionUpdated.emit(Unit)
+        Log.d(TAG, "Emit new isSignedIn=${isSignedIn.value}, state=$state")
+        // Set to true when initialization
+        if (!isInitialized.value)
+          isInitialized.emit(true)
       }
     }
+  }
+
+  /**
+   * Public wrapper for checkPermissions().
+   *
+   *
+   * This function should be used by external components (e.g., UI layers) to refresh
+   * the permission state. Directly calling checkPermissions() is discouraged to maintain
+   * encapsulation and allow future flexibility.
+   */
+  fun refreshPermissions() {
+    checkPermissions()
   }
 
   fun requestPermissions(
@@ -92,37 +96,21 @@ class PermissionsManager(
     consentScreenOptions: ConsentScreenOptions? = null,
   ) {
     scope.launch {
-      logAuthorizationRuntime()
-      Log.i(
-        TAG,
-        "Launching Home permission flow: force=$isForceRefresh, " +
-          "hasConsentOptions=${consentScreenOptions != null}",
-      )
       try {
-        val result: PermissionsResult = if (!isForceRefresh && consentScreenOptions == null) {
-          client.requestPermissions()
-        } else {
-          val optionsToUse = consentScreenOptions
-            ?: currentStructureIdProvider?.invoke()?.takeIf { it.isNotEmpty() }?.let {
-              ConsentScreenOptions(
-                structureId = it,
-                allowedStructureIds = emptyList(),
-                isAllowStructureChange = true,
-              )
-            }
-          if (optionsToUse == null) {
-            client.requestPermissions(ForcePermissionFlow.FORCE_LAUNCH)
-          } else {
-            client.requestPermissions(
-              ForcePermissionFlow.FORCE_LAUNCH,
-              consentScreenOptions = optionsToUse,
+        // Use passed options or fallback to active structure ID
+        val optionsToUse = consentScreenOptions
+          ?: run {
+            val currentStructureId = currentStructureIdProvider?.invoke()
+            ConsentScreenOptions(
+              structureId = currentStructureId,
+              allowedStructureIds = emptyList(),
+              isAllowStructureChange = !currentStructureId.isNullOrEmpty()
             )
           }
-        }
-        Log.i(
-          TAG,
-          "Home permission flow returned: status=${result.status}, " +
-            "error=${result.errorMessage ?: "none"}",
+        // Request permissions using ForcePermissionFlow:
+        val result: PermissionsResult = client.requestPermissions(
+          ForcePermissionFlow.FORCE_LAUNCH,
+          consentScreenOptions = optionsToUse
         )
         // Adjust the sign-in status according to permission result:
         if (result.status == PermissionsResultStatus.SUCCESS) {
@@ -137,39 +125,9 @@ class PermissionsManager(
         // Report the permission result:
         reportPermissionResult(result)
       } catch (e: HomeException) {
-        Log.e(TAG, "Home permission flow failed with HomeException", e)
-        MainActivity.showError(
-          this@PermissionsManager,
-          "Google Home permission failed: ${e.message ?: e.javaClass.simpleName}",
-        )
-      } catch (e: CancellationException) {
-        throw e
-      } catch (e: Exception) {
-        Log.e(TAG, "Home permission flow failed unexpectedly", e)
-        MainActivity.showError(
-          this@PermissionsManager,
-          "Google Home permission failed: ${e.message ?: e.javaClass.simpleName}",
-        )
+        MainActivity.showError(this, e.message.toString())
       }
     }
-  }
-
-  private fun logAuthorizationRuntime() {
-    val packageManager = activity.packageManager
-    val playServicesVersion = runCatching {
-      val packageInfo = packageManager.getPackageInfo("com.google.android.gms", 0)
-      "${packageInfo.versionName}(${packageInfo.longVersionCode})"
-    }.getOrElse { "unavailable" }
-    val webViewVersion = runCatching {
-      WebView.getCurrentWebViewPackage()?.versionName ?: "unavailable"
-    }.getOrElse { "unavailable" }
-    val playServicesStatus = GoogleApiAvailability.getInstance()
-      .isGooglePlayServicesAvailable(activity)
-    Log.i(
-      TAG,
-      "Authorization runtime: playServices=$playServicesVersion, " +
-        "availability=$playServicesStatus, webView=$webViewVersion",
-    )
   }
 
   private fun reportPermissionState(permissionState: PermissionsState) {
@@ -180,7 +138,7 @@ class PermissionsManager(
         MainActivity.showDebug(this, message)
 
       PermissionsState.NOT_GRANTED ->
-        Log.i(TAG, message)
+        MainActivity.showWarning(this, message)
 
       PermissionsState.PERMISSIONS_STATE_UNAVAILABLE ->
         MainActivity.showWarning(this, message)
