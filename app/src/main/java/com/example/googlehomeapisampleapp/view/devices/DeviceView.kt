@@ -98,8 +98,8 @@ import com.example.googlehomeapisampleapp.view.lights.LightDialControl
 import com.example.googlehomeapisampleapp.viewmodel.HomeAppViewModel
 import com.example.googlehomeapisampleapp.viewmodel.devices.BasicInformationUiState
 import com.example.googlehomeapisampleapp.viewmodel.devices.DeviceViewModel
-import com.example.googlehomeapisampleapp.widget.LightWidgetStore
-import com.example.googlehomeapisampleapp.widget.updateLightDialWidgets
+import com.example.googlehomeapisampleapp.widget.WidgetTargetKind
+import com.example.googlehomeapisampleapp.widget.WidgetTargetOption
 import com.google.home.ConnectivityState
 import com.google.home.google.ExtendedColorControl
 import com.google.home.DeviceType
@@ -318,8 +318,6 @@ fun DeviceView(homeAppVM: HomeAppViewModel) {
 fun ControlListComponent(homeAppVM: HomeAppViewModel) {
 
   val deviceVM: DeviceViewModel = homeAppVM.selectedDeviceVM.collectAsState().value ?: return
-  val context = LocalContext.current
-  val widgetScope = rememberCoroutineScope()
   val deviceType: DeviceType by deviceVM.type.collectAsStateWithLifecycle()
   val deviceTypeName: String by deviceVM.typeName.collectAsStateWithLifecycle()
   val deviceTraits: List<Trait> = deviceVM.traits.collectAsState().value
@@ -355,14 +353,15 @@ fun ControlListComponent(homeAppVM: HomeAppViewModel) {
   if (onOffTrait != null) {
     Button(
       onClick = {
-        LightWidgetStore.select(
-          context = context,
-          deviceId = deviceVM.id,
-          displayName = deviceVM.name.value,
-          isOn = onOffTrait.onOff == true,
-          brightnessLevel = brightnessTrait?.currentLevel?.toInt(),
+        // Route through the ViewModel so the widget state monitor restarts for the new target.
+        homeAppVM.selectWidgetTarget(
+          WidgetTargetOption(
+            kind = WidgetTargetKind.DEVICE,
+            id = deviceVM.id,
+            name = deviceVM.name.value,
+            deviceIds = setOf(deviceVM.id),
+          ),
         )
-        widgetScope.launch { updateLightDialWidgets(context) }
       },
       modifier = Modifier.fillMaxWidth(),
       shape = MaterialTheme.shapes.medium,
