@@ -110,7 +110,7 @@ internal suspend fun persistWidgetPowerError(
   val currentState = LightWidgetStore.load(appContext)
   LightWidgetStore.save(
     appContext,
-    currentState.copy(
+    currentState.clearPendingWidgetCommand().copy(
       lastUpdatedAt = System.currentTimeMillis(),
       syncStatus = WidgetSyncStatus.ERROR,
       lastSyncError = message,

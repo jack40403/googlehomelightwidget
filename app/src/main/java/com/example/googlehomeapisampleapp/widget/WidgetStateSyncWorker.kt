@@ -5,6 +5,7 @@ import android.util.Log
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.google.home.PermissionsState
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -66,6 +67,8 @@ class WidgetStateSyncWorker(
           "brightness=${refreshedState.brightnessLevel}, devices=${refreshedState.deviceIds.size}",
       )
       Result.success()
+    } catch (error: CancellationException) {
+      throw error
     } catch (error: Exception) {
       Log.e(TAG, "Background Google Home widget sync failed", error)
       publishStatusIfCurrent(

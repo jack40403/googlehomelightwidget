@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import com.google.home.HomeClient
 import java.util.UUID
+import kotlinx.coroutines.CancellationException
 
 data class WidgetCommandToken(
   val operationId: String,
@@ -38,22 +39,32 @@ object WidgetCommandCoordinator {
       return null
     }
 
+    // An action on only part of the widget target cannot predict the aggregate widget state
+    // (any-on power, average brightness), so it only triggers a readback without expectations.
+    val coversWholeTarget = actionDeviceIds == null ||
+      actionCoversWidgetTarget(targetDeviceIds - HiddenDevicesStore.load(appContext), actionDeviceIds)
+    val widgetExpectedIsOn = expectedIsOn?.takeIf { coversWholeTarget }
+    val widgetExpectedBrightnessLevel = expectedBrightnessLevel?.takeIf { coversWholeTarget }
+    val widgetExpectedHue = expectedHue?.takeIf { coversWholeTarget }
+    val widgetExpectedSaturation = expectedSaturation?.takeIf { coversWholeTarget }
+
     val operationId = operationIdOverride ?: "$reason-${UUID.randomUUID()}"
     val optimisticState = LightWidgetStore.save(
       appContext,
       createOptimisticWidgetState(
         previousState = previousState,
         operationId = operationId,
-        expectedIsOn = expectedIsOn,
-        expectedBrightnessLevel = expectedBrightnessLevel,
-        expectedHue = expectedHue,
-        expectedSaturation = expectedSaturation,
+        expectedIsOn = widgetExpectedIsOn,
+        expectedBrightnessLevel = widgetExpectedBrightnessLevel,
+        expectedHue = widgetExpectedHue,
+        expectedSaturation = widgetExpectedSaturation,
       ),
     )
     Log.i(
       TAG,
       "Action received: operationId=$operationId, reason=$reason, " +
         "target=${previousState.targetKind}:${previousState.targetId}, deviceIds=$targetDeviceIds, " +
+        "coversWholeTarget=$coversWholeTarget, " +
         "optimisticOn=${optimisticState.isOn}, optimisticBrightness=${optimisticState.brightnessLevel}",
     )
     updateLightDialWidgets(appContext, reason = "${reason}_optimistic")
@@ -61,10 +72,10 @@ object WidgetCommandCoordinator {
       operationId = operationId,
       previousState = previousState,
       optimisticState = optimisticState,
-      expectedIsOn = expectedIsOn,
-      expectedBrightnessLevel = expectedBrightnessLevel,
-      expectedHue = expectedHue,
-      expectedSaturation = expectedSaturation,
+      expectedIsOn = widgetExpectedIsOn,
+      expectedBrightnessLevel = widgetExpectedBrightnessLevel,
+      expectedHue = widgetExpectedHue,
+      expectedSaturation = widgetExpectedSaturation,
     )
   }
 
@@ -94,6 +105,7 @@ object WidgetCommandCoordinator {
         )
       }
     }.onFailure { error ->
+      if (error is CancellationException) throw error
       Log.e(TAG, "Home readback failed: operationId=${token.operationId}", error)
     }.getOrNull()
 
@@ -121,7 +133,7 @@ object WidgetCommandCoordinator {
     val pendingState = LightWidgetStore.saveIfOperationCurrent(
       appContext,
       token.operationId,
-      currentState.copy(
+      currentState.clearPendingWidgetCommand().copy(
         syncStatus = WidgetSyncStatus.ERROR,
         lastSyncError = partialFailure ?: "Google Home 已收到指令，但尚未回傳最新狀態",
         source = WidgetStateSource.COMMAND,
@@ -204,6 +216,8 @@ object WidgetCommandCoordinator {
       )
       updateLightDialWidgets(appContext, reason = "manual_refresh_completed")
       persistedState
+    } catch (error: CancellationException) {
+      throw error
     } catch (error: Exception) {
       val currentState = LightWidgetStore.load(appContext)
       LightWidgetStore.saveIfOperationCurrent(
@@ -224,6 +238,11 @@ object WidgetCommandCoordinator {
 
   private const val TAG = "WidgetCommand"
 }
+
+internal fun actionCoversWidgetTarget(
+  targetDeviceIds: Set<String>,
+  actionDeviceIds: Collection<String>,
+): Boolean = targetDeviceIds.isNotEmpty() && targetDeviceIds.all { it in actionDeviceIds }
 
 internal fun createOptimisticWidgetState(
   previousState: LightWidgetState,

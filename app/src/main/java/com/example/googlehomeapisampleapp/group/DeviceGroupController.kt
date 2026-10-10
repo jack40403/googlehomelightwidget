@@ -10,6 +10,7 @@ import com.google.home.matter.standard.LevelControlTrait
 import com.google.home.matter.standard.OnOff
 import com.google.home.matter.standard.Thermostat
 import com.google.home.matter.standard.ThermostatTrait
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 import kotlin.math.roundToInt
 
@@ -19,6 +20,8 @@ object DeviceGroupController {
     for (device in devices) {
       try {
         setDevicePower(device, enabled)
+      } catch (error: CancellationException) {
+        throw error
       } catch (error: Exception) {
         Log.e(TAG, "Power command failed for ${device.id.id} (${device.name})", error)
         failures += device.name
@@ -42,6 +45,8 @@ object DeviceGroupController {
           optionsMask = LevelControlTrait.OptionsBitmap(),
           optionsOverride = LevelControlTrait.OptionsBitmap(),
         )
+      } catch (error: CancellationException) {
+        throw error
       } catch (error: Exception) {
         Log.e(TAG, "Brightness command failed for ${device.id.id} (${device.name})", error)
         failures += device.name
@@ -70,6 +75,8 @@ object DeviceGroupController {
           saturation = normalizedSaturation,
           value = value,
         )
+      } catch (error: CancellationException) {
+        throw error
       } catch (error: Exception) {
         Log.e(TAG, "Color command failed for ${device.id.id} (${device.name})", error)
         failures += device.name

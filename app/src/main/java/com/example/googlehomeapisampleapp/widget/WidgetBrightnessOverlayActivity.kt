@@ -53,7 +53,10 @@ import com.example.googlehomeapisampleapp.view.lights.brightnessLevelFromDialVal
 import dagger.hilt.android.AndroidEntryPoint
 import java.util.UUID
 import javax.inject.Inject
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
 @AndroidEntryPoint
@@ -74,7 +77,9 @@ class WidgetBrightnessOverlayActivity : ComponentActivity() {
           initialState = initialState,
           onLoadState = { loadCurrentState() },
           onSaveLevel = { brightness, operationId ->
-            saveBrightness(brightness, operationId)
+            // Once sent, the command and its complete/fail bookkeeping must finish even if the
+            // overlay is dismissed (e.g. Home pressed), otherwise the widget is rolled back.
+            withContext(NonCancellable) { saveBrightness(brightness, operationId) }
           },
           onAuthorize = { openPermissionFlow() },
           onClose = { finish() },
@@ -195,6 +200,8 @@ class WidgetBrightnessOverlayActivity : ComponentActivity() {
           OverlaySaveResult(true, null)
         }
       }
+    } catch (error: CancellationException) {
+      throw error
     } catch (error: Exception) {
       Log.e(TAG, "Overlay brightness command failed: operationId=$operationId", error)
       commandToken?.let {
