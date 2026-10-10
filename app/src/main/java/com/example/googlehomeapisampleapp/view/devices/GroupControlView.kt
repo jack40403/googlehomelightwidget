@@ -70,6 +70,7 @@ fun GroupControlBottomSheet(
   }
 
   val selectedRoom = rooms.firstOrNull { it.id == selectedRoomId } ?: rooms.firstOrNull()
+  val selectedRoomName = selectedRoom?.name?.collectAsState()?.value
   val roomDevices = selectedRoom?.deviceVMs?.collectAsState()?.value
     ?.filterNot { it.id in hiddenDeviceIds }
     ?: emptyList()
@@ -136,7 +137,7 @@ fun GroupControlBottomSheet(
           FilterChip(
             selected = roomMenuExpanded,
             onClick = { roomMenuExpanded = true },
-            label = { Text(selectedRoom?.name?.value ?: "Choose a room") },
+            label = { Text(selectedRoomName ?: "Choose a room") },
             trailingIcon = { Icon(Icons.Default.ArrowDropDown, contentDescription = null) },
           )
           DropdownMenu(
@@ -145,7 +146,10 @@ fun GroupControlBottomSheet(
           ) {
             rooms.forEach { room ->
               DropdownMenuItem(
-                text = { Text(room.name.value) },
+                text = {
+                  val roomName by room.name.collectAsState()
+                  Text(roomName)
+                },
                 onClick = {
                   selectedRoomId = room.id
                   roomMenuExpanded = false

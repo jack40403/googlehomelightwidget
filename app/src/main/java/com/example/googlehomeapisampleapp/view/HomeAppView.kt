@@ -161,7 +161,7 @@ fun HomeAppView(homeAppVM: HomeAppViewModel) {
           WelcomeView(homeAppVM)
         } else {
           if (showUserManagement.value) {
-          val userManagementViewModel: UserManagementViewModel = viewModel()
+            val userManagementViewModel: UserManagementViewModel = viewModel()
             UserManagementView(
               viewModel = userManagementViewModel,
               homeAppVM = homeAppVM,

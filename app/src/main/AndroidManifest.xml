@@ -20,10 +20,16 @@
   <meta-data
   android:name="androidx.lifecycle.ProcessLifecycleOwnerInitializer"
   android:value="androidx.startup" />
+  <!--
+    Declares the Home APIs module dependency for Google Play services (from Google's sample app).
+    The service is never instantiated (enabled="false"); Play services only reads the metadata,
+    so the class does not exist in the app and lint's MissingClass check does not apply.
+  -->
   <service
     android:name="com.google.android.gms.metadata.ModuleDependencies"
     android:enabled="false"
-    android:exported="false">
+    android:exported="false"
+    tools:ignore="MissingClass">
     <intent-filter>
       <action android:name="com.google.android.gms.metadata.MODULE_DEPENDENCIES" />
     </intent-filter>
