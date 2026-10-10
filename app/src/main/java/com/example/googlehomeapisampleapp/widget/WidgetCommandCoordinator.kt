@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import com.google.home.HomeClient
 import java.util.UUID
+import kotlinx.coroutines.CancellationException
 
 data class WidgetCommandToken(
   val operationId: String,
@@ -104,6 +105,7 @@ object WidgetCommandCoordinator {
         )
       }
     }.onFailure { error ->
+      if (error is CancellationException) throw error
       Log.e(TAG, "Home readback failed: operationId=${token.operationId}", error)
     }.getOrNull()
 
@@ -214,6 +216,8 @@ object WidgetCommandCoordinator {
       )
       updateLightDialWidgets(appContext, reason = "manual_refresh_completed")
       persistedState
+    } catch (error: CancellationException) {
+      throw error
     } catch (error: Exception) {
       val currentState = LightWidgetStore.load(appContext)
       LightWidgetStore.saveIfOperationCurrent(

@@ -55,7 +55,10 @@ import com.example.googlehomeapisampleapp.ui.theme.GoogleHomeAPISampleAppTheme
 import dagger.hilt.android.AndroidEntryPoint
 import java.util.UUID
 import javax.inject.Inject
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.hypot
@@ -78,7 +81,11 @@ class WidgetColorPickerActivity : ComponentActivity() {
       GoogleHomeAPISampleAppTheme {
         WidgetColorPickerScreen(
           initialState = initialState,
-          onApplyColor = { hue, saturation -> applyColor(hue, saturation) },
+          onApplyColor = { hue, saturation ->
+            // Once sent, the command and its complete/fail bookkeeping must finish even if the
+            // picker is dismissed (e.g. Home pressed), otherwise the widget is rolled back.
+            withContext(NonCancellable) { applyColor(hue, saturation) }
+          },
           onAuthorize = { openPermissionFlow() },
           onClose = { finish() },
         )
@@ -160,6 +167,8 @@ class WidgetColorPickerActivity : ComponentActivity() {
           else -> ColorApplyResult(true, null)
         }
       }
+    } catch (error: CancellationException) {
+      throw error
     } catch (error: Exception) {
       Log.e(TAG, "Widget color control failed: operationId=$operationId", error)
       commandToken?.let {
