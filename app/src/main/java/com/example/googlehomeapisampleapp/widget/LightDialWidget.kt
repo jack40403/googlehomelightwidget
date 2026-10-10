@@ -196,6 +196,7 @@ private fun LightDialWidgetContent(state: LightWidgetState) {
   val dialComponent = ComponentName(context, WidgetBrightnessOverlayActivity::class.java)
   val colorComponent = ComponentName(context, WidgetColorPickerActivity::class.java)
   val refreshComponent = ComponentName(context, WidgetRefreshActivity::class.java)
+  val visibleLightCount = (state.deviceIds - HiddenDevicesStore.load(context)).size
   val brightness = state.brightnessLevel?.coerceIn(0, 254)?.div(254f) ?: 0f
   val brightnessText = state.brightnessLevel?.let { "${(brightness * 100).roundToInt()}%" } ?: "--%"
   val displayColor = widgetDisplayColor(state)
@@ -279,7 +280,7 @@ private fun LightDialWidgetContent(state: LightWidgetState) {
           style = TextStyle(color = ColorProvider(displayColor)),
         )
         Text(
-          text = if (state.isOn) "已開啟 · ${state.deviceIds.size} 個燈具" else "已關閉 · ${state.deviceIds.size} 個燈具",
+          text = if (state.isOn) "已開啟 · $visibleLightCount 個燈具" else "已關閉 · $visibleLightCount 個燈具",
           style = TextStyle(color = ColorProvider(Color(0xFFC7D6CB))),
         )
         Text(

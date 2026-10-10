@@ -26,34 +26,65 @@ import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.abs
 import kotlin.math.min
 
-@OptIn(HomeExperimentalApi::class)
+/**
+ * Devices to command or read for the widget target. Hidden devices are excluded here, while the
+ * configured target in [LightWidgetStore] keeps them so they come back when shown again.
+ */
 suspend fun HomeClient.resolveWidgetDevices(
   context: Context,
   state: LightWidgetState,
-): List<HomeDevice> {
+): List<HomeDevice> = resolveWidgetTarget(context, state).devices
+
+private class ResolvedWidgetTarget(
+  val devices: List<HomeDevice>,
+  /** Current Google Home group membership (including hidden devices), or null for non-groups. */
+  val groupMemberIds: Set<String>?,
+)
+
+@OptIn(HomeExperimentalApi::class)
+private suspend fun HomeClient.resolveWidgetTarget(
+  context: Context,
+  state: LightWidgetState,
+): ResolvedWidgetTarget {
   val hiddenDeviceIds = HiddenDevicesStore.load(context)
   if (state.targetKind == WidgetTargetKind.GROUP && state.targetId != null) {
     val group = entities(DeviceGroup).first().firstOrNull { it.id.id == state.targetId }
     if (group != null) {
-      val devices = group.devices(enableMultipartDevices = true).first()
-        .filterNot { it.id.id in hiddenDeviceIds }
+      val members = group.devices(enableMultipartDevices = true).first()
+      val devices = members.filterNot { it.id.id in hiddenDeviceIds }
       Log.i(TAG, "Resolved Google Home group ${state.targetId} to ${devices.size} device(s)")
-      return devices
+      return ResolvedWidgetTarget(devices, members.map { it.id.id }.toSet())
     }
     Log.w(TAG, "Google Home group ${state.targetId} was not found")
   }
   val deviceIds = state.deviceIds.ifEmpty { setOfNotNull(state.deviceId) }
   val resolvedDevices = devices().first().filter { it.id.id in deviceIds && it.id.id !in hiddenDeviceIds }
   Log.i(TAG, "Resolved widget target ${state.targetKind}:${state.targetId} to ${resolvedDevices.size} device(s)")
-  return resolvedDevices
+  return ResolvedWidgetTarget(resolvedDevices, groupMemberIds = null)
 }
+
+/**
+ * The configured target device list after a read. Reads must not shrink the configured target
+ * (hidden or temporarily missing devices would be dropped for good); only Google Home groups
+ * refresh their membership.
+ */
+internal fun configuredWidgetDeviceIdsAfterRead(
+  state: LightWidgetState,
+  groupMemberIds: Set<String>?,
+): Set<String> =
+  if (state.targetKind == WidgetTargetKind.GROUP && !groupMemberIds.isNullOrEmpty()) {
+    groupMemberIds
+  } else {
+    state.deviceIds.ifEmpty { setOfNotNull(state.deviceId) }
+  }
 
 suspend fun HomeClient.readWidgetState(
   context: Context,
   state: LightWidgetState,
   forceRefresh: Boolean = false,
 ): LightWidgetState {
-  val devices = resolveWidgetDevices(context, state)
+  val resolvedTarget = resolveWidgetTarget(context, state)
+  val devices = resolvedTarget.devices
   if (devices.isEmpty()) {
     Log.w(TAG, "Cannot read widget state because the target resolved to zero devices")
     if (state.deviceIds.isNotEmpty() || state.deviceId != null) {
@@ -111,9 +142,10 @@ suspend fun HomeClient.readWidgetState(
       "colorTraits=${traits.count { it is ExtendedColorControl }}, forceRefresh=$forceRefresh, " +
       "operationId=${state.operationId}",
   )
+  val configuredDeviceIds = configuredWidgetDeviceIdsAfterRead(state, resolvedTarget.groupMemberIds)
   return state.copy(
-    deviceId = devices.firstOrNull()?.id?.id ?: state.deviceId,
-    deviceIds = devices.map { it.id.id }.toSet(),
+    deviceId = configuredDeviceIds.firstOrNull() ?: state.deviceId,
+    deviceIds = configuredDeviceIds,
     isOn = isOn,
     brightnessLevel = brightness,
     colorHue = hue,

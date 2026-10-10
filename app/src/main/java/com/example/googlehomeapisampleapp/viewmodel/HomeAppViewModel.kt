@@ -528,15 +528,9 @@ class HomeAppViewModel(
   }
 
   private fun updateWidgetTargetForVisibility() {
-    val state = LightWidgetStore.load(homeApp.context)
-    val visibleIds = state.deviceIds - _hiddenDeviceIds.value
-    LightWidgetStore.save(
-      homeApp.context,
-      state.copy(
-        deviceId = visibleIds.firstOrNull(),
-        deviceIds = visibleIds,
-      ),
-    )
+    // The configured widget target keeps hidden devices; they are only skipped when the widget
+    // resolves devices to command or read. Restart the monitor so it observes the new visible set.
+    widgetStateMonitor?.restart()
     viewModelScope.launch { updateLightDialWidgets(homeApp.context) }
   }
 
