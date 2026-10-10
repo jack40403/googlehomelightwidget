@@ -17,8 +17,8 @@ android {
     applicationId = "com.example.googlehomeapisampleapp"
     minSdk = 29
     targetSdk = 36
-    versionCode = 63
-    versionName = "1.10.19"
+    versionCode = 64
+    versionName = "1.10.20-widget-sync-fixes"
 
     // Store your GCP project web client ID and Playground OAuth Client ID in local.properties and
     // access them
