@@ -17,8 +17,8 @@ android {
     applicationId = "com.example.googlehomeapisampleapp"
     minSdk = 29
     targetSdk = 36
-    versionCode = 62
-    versionName = "1.10.18-widget-brightness-overlay"
+    versionCode = 64
+    versionName = "1.10.20-multi-light-widget"
 
     // Store the Playground OAuth Client ID in local.properties and access it via project properties.
     // If local.properties doesn't exist in your app root folder, just create it
@@ -48,6 +48,13 @@ android {
       isShrinkResources = true
       signingConfig = signingConfigs.getByName("debug")
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+    }
+    create("compact") {
+      initWith(getByName("release"))
+      isMinifyEnabled = true
+      isShrinkResources = true
+      signingConfig = signingConfigs.getByName("debug")
+      matchingFallbacks += listOf("release")
     }
   }
   compileOptions {
