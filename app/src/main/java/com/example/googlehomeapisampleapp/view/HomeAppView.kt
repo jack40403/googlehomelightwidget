@@ -191,13 +191,13 @@ fun HomeAppView(homeAppVM: HomeAppViewModel) {
 
         if (showUserManagement.value) {
           val userManagementViewModel: UserManagementViewModel = viewModel()
-            UserManagementView(
-              viewModel = userManagementViewModel,
-              homeAppVM = homeAppVM,
-              onBack = { showUserManagement.value = false }
-            )
-            return@Column
-          }
+          UserManagementView(
+            viewModel = userManagementViewModel,
+            homeAppVM = homeAppVM,
+            onBack = { showUserManagement.value = false }
+          )
+          return@Column
+        }
         if (showPresenceSettings.value) {
           PresenceSettingsView(
             homeAppVM = homeAppVM,
