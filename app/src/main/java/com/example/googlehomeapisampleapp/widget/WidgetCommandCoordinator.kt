@@ -121,7 +121,7 @@ object WidgetCommandCoordinator {
     val pendingState = LightWidgetStore.saveIfOperationCurrent(
       appContext,
       token.operationId,
-      currentState.copy(
+      currentState.clearPendingWidgetCommand().copy(
         syncStatus = WidgetSyncStatus.ERROR,
         lastSyncError = partialFailure ?: "Google Home 已收到指令，但尚未回傳最新狀態",
         source = WidgetStateSource.COMMAND,

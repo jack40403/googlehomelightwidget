@@ -394,13 +394,22 @@ internal fun isWidgetStateCurrent(
   expectedState.lastUpdatedAt == currentState.lastUpdatedAt
 }
 
-internal fun LightWidgetState.hasPendingWidgetCommand(): Boolean =
-  operationId != null && (
-    pendingIsOn != null ||
-      pendingBrightnessLevel != null ||
-      pendingColorHue != null ||
-      pendingColorSaturation != null
-    )
+internal fun LightWidgetState.hasPendingWidgetCommand(
+  nowMillis: Long = System.currentTimeMillis(),
+): Boolean =
+  operationId != null &&
+    (
+      pendingIsOn != null ||
+        pendingBrightnessLevel != null ||
+        pendingColorHue != null ||
+        pendingColorSaturation != null
+      ) &&
+    !isPendingWidgetCommandExpired(nowMillis)
+
+private fun LightWidgetState.isPendingWidgetCommandExpired(nowMillis: Long): Boolean {
+  val pendingAge = lastUpdatedAt?.let { nowMillis - it } ?: return false
+  return pendingAge >= PENDING_COMMAND_MAX_AGE_MILLIS
+}
 
 internal fun LightWidgetState.clearPendingWidgetCommand(): LightWidgetState = copy(
   pendingIsOn = null,
@@ -425,9 +434,7 @@ internal fun isWidgetObservationAcceptable(
   authoritative: Boolean = false,
   nowMillis: Long = System.currentTimeMillis(),
 ): Boolean {
-  if (authoritative || !currentState.hasPendingWidgetCommand()) return true
-  val pendingAge = currentState.lastUpdatedAt?.let { nowMillis - it }
-  if (pendingAge != null && pendingAge >= PENDING_COMMAND_MAX_AGE_MILLIS) return true
+  if (authoritative || !currentState.hasPendingWidgetCommand(nowMillis)) return true
 
   val pendingIsOn = currentState.pendingIsOn
   val pendingBrightness = currentState.pendingBrightnessLevel
@@ -448,4 +455,4 @@ private fun hueDistance(first: Float, second: Float): Float {
   return min(difference, 360f - difference)
 }
 
-private const val PENDING_COMMAND_MAX_AGE_MILLIS = 15_000L
+internal const val PENDING_COMMAND_MAX_AGE_MILLIS = 15_000L
