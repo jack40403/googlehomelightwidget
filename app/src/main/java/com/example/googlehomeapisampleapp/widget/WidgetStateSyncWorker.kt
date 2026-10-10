@@ -9,6 +9,8 @@ import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.components.SingletonComponent
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withTimeout
 import java.util.concurrent.TimeUnit
 
@@ -34,6 +36,13 @@ class WidgetStateSyncWorker(
                 LightDialWidget(homeClient).updateAll(applicationContext)
             }
             return Result.success()
+        } catch (e: TimeoutCancellationException) {
+            // Our own 20 s timeout: a slow Home API read, not a cancelled worker.
+            Log.w("WidgetStateSyncWorker", "Widget refresh timed out; WorkManager will retry", e)
+            return Result.retry()
+        } catch (e: CancellationException) {
+            // WorkManager stopped the worker (constraints lost, REPLACE, cancel): not a sync failure.
+            throw e
         } catch (e: Exception) {
             Log.w("WidgetStateSyncWorker", "Widget refresh failed; WorkManager will retry", e)
             return Result.retry()

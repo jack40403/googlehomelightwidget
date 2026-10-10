@@ -39,6 +39,7 @@ import com.example.googlehomeapisampleapp.MainActivity
 import com.google.home.HomeClient
 import com.google.home.matter.standard.OnOff
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.firstOrNull
 import java.util.concurrent.TimeUnit
@@ -148,6 +149,8 @@ internal class LightDialWidget(private val homeClient: HomeClient) : GlanceAppWi
         .putBoolean("is_powered_on", isPoweredOn)
         .putLong("synced_at", System.currentTimeMillis())
         .apply()
+    } catch (e: CancellationException) {
+      throw e
     } catch (e: Exception) {
       Log.e("LightDialWidget", "Failed to fetch light state", e)
       hasError = true

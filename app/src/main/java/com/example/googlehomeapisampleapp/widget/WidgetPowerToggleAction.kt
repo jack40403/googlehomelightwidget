@@ -12,7 +12,10 @@ import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.components.SingletonComponent
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.firstOrNull
 
 class WidgetPowerToggleAction : ActionCallback {
@@ -60,11 +63,19 @@ class WidgetPowerToggleAction : ActionCallback {
                     targetTrait.on()
                 }
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e("WidgetPowerToggle", "Failed to toggle Google Home light", e)
         } finally {
-            runCatching { LightDialWidget(homeClient).updateAll(context.applicationContext) }
-                .onFailure { Log.e("WidgetPowerToggle", "Failed to refresh widget after action", it) }
+            // The command may already have reached the light, so refresh even if we were cancelled.
+            withContext(NonCancellable) {
+                try {
+                    LightDialWidget(homeClient).updateAll(context.applicationContext)
+                } catch (e: Exception) {
+                    Log.e("WidgetPowerToggle", "Failed to refresh widget after action", e)
+                }
+            }
             WidgetSyncScheduler.enqueueNow(context)
         }
     }

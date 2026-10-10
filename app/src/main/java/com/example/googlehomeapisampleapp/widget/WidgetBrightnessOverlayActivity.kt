@@ -68,6 +68,8 @@ class WidgetBrightnessOverlayActivity : ComponentActivity() {
                             loadError = "找不到此燈具，請先同步 widget"
                         }
                     }
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
                 } catch (e: Exception) {
                     loadError = e.message ?: "無法讀取 Google Home 裝置"
                     android.util.Log.e("WidgetBrightnessOverlay", "Failed to load light controls", e)
