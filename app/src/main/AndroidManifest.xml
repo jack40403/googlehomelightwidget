@@ -4,11 +4,6 @@
 
   <uses-sdk />
 
-  <queries>
-    <package android:name="com.google.android.gms" />
-    <package android:name="com.android.vending" />
-  </queries>
-
   <application
   android:name=".HomeApplication"
   android:icon="@mipmap/ic_launcher"
@@ -20,21 +15,6 @@
   <meta-data
   android:name="androidx.lifecycle.ProcessLifecycleOwnerInitializer"
   android:value="androidx.startup" />
-  <!--
-    Declares the Home APIs module dependency for Google Play services (from Google's sample app).
-    The service is never instantiated (enabled="false"); Play services only reads the metadata,
-    so the class does not exist in the app and lint's MissingClass check does not apply.
-  -->
-  <service
-    android:name="com.google.android.gms.metadata.ModuleDependencies"
-    android:enabled="false"
-    android:exported="false"
-    tools:ignore="MissingClass">
-    <intent-filter>
-      <action android:name="com.google.android.gms.metadata.MODULE_DEPENDENCIES" />
-    </intent-filter>
-    <meta-data android:name="home:0:preferred" android:value="" />
-  </service>
 
   <activity
   android:name=".MainActivity"
@@ -46,6 +26,7 @@
     <intent-filter>
       <action android:name="android.intent.action.MAIN" />
       <category android:name="android.intent.category.LAUNCHER" />
+
     </intent-filter>
     <intent-filter>
         <action android:name="android.intent.action.VIEW" />
@@ -74,47 +55,32 @@
     </receiver>
 
     <activity
-      android:name=".widget.WidgetLightActionActivity"
-      android:excludeFromRecents="true"
+      android:name=".AccountSwitchProxyActivity"
       android:exported="false"
-      android:noHistory="true"
-      android:theme="@android:style/Theme.Translucent.NoTitleBar" />
-
-    <activity
-      android:name=".widget.WidgetRefreshActivity"
-      android:excludeFromRecents="true"
-      android:exported="false"
-      android:noHistory="true"
       android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
     <activity
       android:name=".widget.WidgetBrightnessDialActivity"
-      android:excludeFromRecents="true"
       android:exported="false"
+      android:excludeFromRecents="true"
       android:theme="@android:style/Theme.Translucent.NoTitleBar" />
-
     <activity
       android:name=".widget.WidgetBrightnessOverlayActivity"
-      android:excludeFromRecents="true"
       android:exported="false"
-      android:launchMode="singleTop"
-      android:taskAffinity="${applicationId}.widgetoverlay"
-      android:theme="@style/Theme.GoogleHomeAPISampleApp.WidgetOverlay" />
-
+      android:excludeFromRecents="true"
+      android:theme="@android:style/Theme.Translucent.NoTitleBar" />
     <activity
       android:name=".widget.WidgetColorPickerActivity"
-      android:excludeFromRecents="true"
       android:exported="false"
-      android:launchMode="singleTop"
-      android:taskAffinity="${applicationId}.widgetoverlay"
-      android:theme="@style/Theme.GoogleHomeAPISampleApp.WidgetOverlay" />
+      android:excludeFromRecents="true"
+      android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+    <activity
+      android:name=".widget.WidgetRefreshActivity"
+      android:exported="false"
+      android:excludeFromRecents="true"
+      android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
   </application>
   <uses-permission android:name="android.permission.INTERNET" />
-  <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
   <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-
-  <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
-  <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-  <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 </manifest>

@@ -17,18 +17,28 @@ android {
     applicationId = "com.example.googlehomeapisampleapp"
     minSdk = 29
     targetSdk = 36
-    versionCode = 62
-    versionName = "1.10.18-widget-brightness-overlay"
+    versionCode = 64
+    versionName = "1.10.20-widget-sync-fixes"
 
-    // Store the Playground OAuth Client ID in local.properties and access it via project properties.
+    // Store your GCP project web client ID and Playground OAuth Client ID in local.properties and
+    // access them
+    // via project properties.
     // If local.properties doesn't exist in your app root folder, just create it
     // e.g. add these lines to your local.properties
+    // WEB_CLIENT_ID_DEV={ProjectNumber}....apps.googleusercontent.com
     // PLAYGROUND_OAUTH_CLIENT_ID=your-oauth-client-id
     val localProperties = Properties()
     val localPropertiesFile = rootProject.file("local.properties")
     if (localPropertiesFile.exists()) {
       localPropertiesFile.inputStream().use { localProperties.load(it) }
     }
+    val webClientIdDevRaw =
+      localProperties.getProperty("WEB_CLIENT_ID_DEV")
+        ?: project.findProperty("WEB_CLIENT_ID_DEV") as? String
+        ?: "YOUR_DEFAULT_WEB_CLIENT_ID"
+    val webClientIdDev = webClientIdDevRaw.replace("\"", "")
+    buildConfigField("String", "DEFAULT_WEB_CLIENT_ID", "\"$webClientIdDev\"")
+
     // Note: PLAYGROUND_OAUTH_CLIENT_ID is only required for the Google Home Playground simulation
     // to retrieve the auth code via a web redirect (Custom Tabs).
     // In a production partner app, you would likely retrieve this code silently from your own
@@ -44,22 +54,38 @@ android {
 
   buildTypes {
     release {
+      isMinifyEnabled = false
+      proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+    }
+    create("compact") {
+      initWith(getByName("release"))
       isMinifyEnabled = true
       isShrinkResources = true
       signingConfig = signingConfigs.getByName("debug")
-      proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+      matchingFallbacks += listOf("release")
     }
   }
+
+  packaging {
+    jniLibs {
+      useLegacyPackaging = true
+    }
+  }
+
   compileOptions {
     sourceCompatibility = JavaVersion.VERSION_17
     targetCompatibility = JavaVersion.VERSION_17
   }
-  kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) } }
+  kotlin {
+    compilerOptions {
+      jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+      freeCompilerArgs.add("-Xmetadata-version=2.2.0")
+    }
+  }
   buildFeatures {
     compose = true
     buildConfig = true
   }
-
 }
 
 dependencies {
@@ -85,12 +111,15 @@ dependencies {
   implementation(libs.play.services.home)
   implementation(libs.play.services.home.types)
   implementation(libs.play.services.auth)
+  // Hilt
   implementation(libs.dagger.hilt.android)
   ksp(libs.hilt.android.compiler)
-  ksp("org.jetbrains.kotlin:kotlin-metadata-jvm:2.4.0")
   implementation(libs.androidx.hilt.navigation.compose)
   ksp(libs.androidx.hilt.compiler)
-  implementation(libs.errorprone.annotations)
-  testImplementation("junit:junit:4.13.2")
 
+  // Login Authorization
+  implementation(libs.googleid)
+
+  // Google Auth
+  implementation(libs.androidx.credentials.play.services.auth)
 }

@@ -16,18 +16,19 @@ limitations under the License.
 package com.example.googlehomeapisampleapp.view
 
 import android.app.Activity
+import android.content.Intent
+import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
@@ -52,6 +53,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -59,9 +61,11 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.googlehomeapisampleapp.AccountSwitchProxyActivity
 import com.example.googlehomeapisampleapp.MainActivity
 import com.example.googlehomeapisampleapp.cloudlinking.CloudLinkingBottomSheet
 import com.example.googlehomeapisampleapp.cloudlinking.CloudLinkingViewModel
+
 import com.example.googlehomeapisampleapp.ui.theme.GoogleHomeAPISampleAppTheme
 import com.example.googlehomeapisampleapp.view.automations.ActionView
 import com.example.googlehomeapisampleapp.view.automations.AutomationView
@@ -83,6 +87,9 @@ import com.example.googlehomeapisampleapp.viewmodel.automations.StarterViewModel
 import com.example.googlehomeapisampleapp.viewmodel.devices.DeviceViewModel
 import com.example.googlehomeapisampleapp.viewmodel.structures.RoomViewModel
 import com.example.googlehomeapisampleapp.viewmodel.usermanagement.UserManagementViewModel
+import com.example.googlehomeapisampleapp.viewmodel.ota.OtaUiState
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 
 /**
@@ -94,8 +101,6 @@ import kotlinx.coroutines.launch
 fun HomeAppView(homeAppVM: HomeAppViewModel) {
   /** Value tracking whether a user is signed-in on the app * */
   val isSignedIn: Boolean = homeAppVM.homeApp.permissionsManager.isSignedIn.collectAsState().value
-  val isPermissionInitialized: Boolean =
-    homeAppVM.homeApp.permissionsManager.isInitialized.collectAsState().value
 
   /** Values tracking what is being selected on the app * */
   val selectedTab: HomeAppViewModel.NavigationTab by homeAppVM.selectedTab.collectAsState()
@@ -112,12 +117,29 @@ fun HomeAppView(homeAppVM: HomeAppViewModel) {
   val roomSettingsFor = remember { mutableStateOf<RoomViewModel?>(null) }
   val moveDeviceFor = remember { mutableStateOf<DeviceViewModel?>(null) }
   val launchHubDiscovery = remember { mutableStateOf(false) }
+
   val showUserManagement = remember { mutableStateOf(false) }
   val showPresenceSettings = remember { mutableStateOf(false) }
+  val selectedStructureVM by homeAppVM.selectedStructureVM.collectAsState()
+
 
   val snackbarHostState = remember { SnackbarHostState() }
   val scope = rememberCoroutineScope()
   val context = LocalContext.current
+
+  LaunchedEffect(Unit) {
+    homeAppVM.navigateToProxyActivity.collect {
+      Log.i(
+        MainActivity.TAG,
+        "HomeActivity: Received navigate event from ViewModel. Launching AccountSwitchProxyActivity.",
+      )
+      val intent =
+        Intent(context, AccountSwitchProxyActivity::class.java).apply {
+          flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+        }
+      context.startActivity(intent)
+    }
+  }
 
   val hubActivationLauncher =
     rememberLauncherForActivityResult(
@@ -145,78 +167,86 @@ fun HomeAppView(homeAppVM: HomeAppViewModel) {
    * This loop helps ensure that permission state remains accurate in case it changes outside the
    * app(e.g., in Google Home or system settings).
    */
+  LaunchedEffect(isSignedIn) {
+    while (homeAppVM.homeApp.permissionsManager.isSignedIn.value) {
+      homeAppVM.homeApp.permissionsManager.refreshPermissions()
+      delay(2000)
+    }
+  }
+
+
+
   // Apply theme on the top-level view:
   GoogleHomeAPISampleAppTheme {
     // Top-level external frame for the views:
-    Column(
-      modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)
-        .statusBarsPadding(),
-    ) {
-      Column(
-        modifier = Modifier.weight(1f).fillMaxWidth(),
-      ) {
-        if (!isPermissionInitialized) {
-          PermissionLoadingView()
-        } else if (!isSignedIn) {
+    Column(modifier = Modifier.fillMaxSize()) {
+      Spacer(modifier = Modifier.height(48.dp).fillMaxWidth().background(Color.Transparent))
+
+
+      Column(modifier = Modifier.weight(1f).fillMaxWidth().background(Color.Transparent)) {
+        if (!isSignedIn) {
           WelcomeView(homeAppVM)
-        } else {
-          if (showUserManagement.value) {
-            val userManagementViewModel: UserManagementViewModel = viewModel()
-            UserManagementView(
-              viewModel = userManagementViewModel,
-              homeAppVM = homeAppVM,
-              onBack = { showUserManagement.value = false }
-            )
-            return@Column
-          }
-          if (showPresenceSettings.value) {
-            PresenceSettingsView(
-              homeAppVM = homeAppVM,
-              onBack = { showPresenceSettings.value = false }
-            )
-            return@Column
-          }
-          if (selectedDeviceVM != null) {
-            DeviceView(homeAppVM)
-          }
-          if (selectedAutomationVM != null) {
-            AutomationView(homeAppVM)
-          }
-          if (selectedStarterVM != null) {
-            StarterView(homeAppVM)
-          }
-          if (selectedActionVM != null) {
-            ActionView(homeAppVM)
-          }
-          if (selectedDraftVM != null) {
-            DraftView(homeAppVM)
-          }
-          if (selectedCandidateVMs != null) {
-            CandidatesView(homeAppVM)
-          }
-          when (selectedTab) {
-            HomeAppViewModel.NavigationTab.DEVICES ->
-              DevicesView(
-                homeAppVM = homeAppVM,
-                onRequestCreateRoom = { showCreateRoom.value = true },
-                onRequestRoomSettings = { room -> roomSettingsFor.value = room },
-                onRequestMoveDevice = { device -> moveDeviceFor.value = device },
-                onRequestAddHub = {
-                  homeAppVM.startHubDiscovery()
-                  launchHubDiscovery.value = true
-                },
-                onNavigateToUserManagement = { showUserManagement.value = true },
-                onNavigateToPresenceSettings = { showPresenceSettings.value = true }
-              )
+        }
 
-            HomeAppViewModel.NavigationTab.AUTOMATIONS ->
-              AutomationsView(
-                homeAppVM = homeAppVM,
-                onNavigateToUserManagement = { showUserManagement.value = true },
-                onNavigateToPresenceSettings = { showPresenceSettings.value = true }
-              )
 
-          }
+        if (showUserManagement.value) {
+          val userManagementViewModel: UserManagementViewModel = viewModel()
+          UserManagementView(
+            viewModel = userManagementViewModel,
+            homeAppVM = homeAppVM,
+            onBack = { showUserManagement.value = false }
+          )
+          return@Column
+        }
+        if (showPresenceSettings.value) {
+          PresenceSettingsView(
+            homeAppVM = homeAppVM,
+            onBack = { showPresenceSettings.value = false }
+          )
+          return@Column
+        }
+        if (selectedDeviceVM != null) {
+          DeviceView(homeAppVM)
+        }
+        if (selectedAutomationVM != null) {
+          AutomationView(homeAppVM)
+        }
+        if (selectedStarterVM != null) {
+          StarterView(homeAppVM)
+        }
+        if (selectedActionVM != null) {
+          ActionView(homeAppVM)
+        }
+        if (selectedDraftVM != null) {
+          DraftView(homeAppVM)
+        }
+        if (selectedCandidateVMs != null) {
+          CandidatesView(homeAppVM)
+        }
+        when (selectedTab) {
+          HomeAppViewModel.NavigationTab.DEVICES ->
+            DevicesView(
+              homeAppVM = homeAppVM,
+              onRequestCreateRoom = { showCreateRoom.value = true },
+              onRequestRoomSettings = { room -> roomSettingsFor.value = room },
+              onRequestMoveDevice = { device -> moveDeviceFor.value = device },
+              onRequestAddHub = {
+                homeAppVM.startHubDiscovery()
+                launchHubDiscovery.value = true
+              },
+
+              onNavigateToUserManagement = { showUserManagement.value = true },
+              onNavigateToPresenceSettings = { showPresenceSettings.value = true }
+            )
+
+          HomeAppViewModel.NavigationTab.AUTOMATIONS ->
+            AutomationsView(
+              homeAppVM = homeAppVM,
+              onNavigateToUserManagement = { showUserManagement.value = true },
+              onNavigateToPresenceSettings = { showPresenceSettings.value = true }
+            )
+
+
         }
       }
 
@@ -369,6 +399,8 @@ fun HomeAppView(homeAppVM: HomeAppViewModel) {
         }
       }
 
+
+
       val showCloudLinkingSheet by homeAppVM.showCloudLinkingSheet.collectAsStateWithLifecycle()
       if (showCloudLinkingSheet) {
         val cloudLinkingViewModel: CloudLinkingViewModel =
@@ -379,18 +411,5 @@ fun HomeAppView(homeAppVM: HomeAppViewModel) {
         )
       }
     }
-  }
-}
-
-@Composable
-private fun PermissionLoadingView() {
-  Column(
-    modifier = Modifier.fillMaxSize().padding(24.dp),
-    horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
-    verticalArrangement = Arrangement.Center,
-  ) {
-    androidx.compose.material3.CircularProgressIndicator()
-    Spacer(Modifier.height(16.dp))
-    Text("正在檢查 Google Home 授權…")
   }
 }

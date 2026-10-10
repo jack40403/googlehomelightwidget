@@ -15,11 +15,18 @@ limitations under the License.
 
 package com.example.googlehomeapisampleapp.viewmodel
 
+import android.accounts.Account
+import android.content.Context
 import android.util.Log
 import androidx.compose.runtime.MutableState
+import androidx.credentials.CredentialManager
+import androidx.credentials.CustomCredential
+import androidx.credentials.GetCredentialRequest
+import androidx.credentials.exceptions.GetCredentialException
+import androidx.credentials.exceptions.NoCredentialException
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.googlehomeapisampleapp.group.DeviceGroupController
+import com.example.googlehomeapisampleapp.BuildConfig
 import com.example.googlehomeapisampleapp.HomeApp
 import com.example.googlehomeapisampleapp.HomeModule_ProvideSupportedTraitsFactory
 import com.example.googlehomeapisampleapp.MainActivity
@@ -33,41 +40,41 @@ import com.example.googlehomeapisampleapp.viewmodel.devices.DeviceViewModel
 import com.example.googlehomeapisampleapp.viewmodel.hubs.HubDiscoveryViewModel
 import com.example.googlehomeapisampleapp.viewmodel.structures.RoomViewModel
 import com.example.googlehomeapisampleapp.viewmodel.structures.StructureViewModel
-import com.example.googlehomeapisampleapp.widget.GoogleHomeGroupOption
-import com.example.googlehomeapisampleapp.widget.HiddenDevicesStore
-import com.example.googlehomeapisampleapp.widget.LightWidgetStore
-import com.example.googlehomeapisampleapp.widget.WidgetCommandCoordinator
-import com.example.googlehomeapisampleapp.widget.WidgetStateMonitor
-import com.example.googlehomeapisampleapp.widget.WidgetTargetKind
-import com.example.googlehomeapisampleapp.widget.WidgetTargetOption
-import com.example.googlehomeapisampleapp.widget.updateLightDialWidgets
-import com.example.googlehomeapisampleapp.widget.widgetSnapshotFromViewModels
+import com.google.android.libraries.identity.googleid.GetGoogleIdOption
+import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
+import com.google.home.HistoryFilter
+import com.google.home.HomeBriefsPage
 import com.google.home.Structure
-import com.google.home.DeviceGroup
-import com.google.home.devices
 import com.google.home.featureConsentStatus
 import com.google.home.ConsentStatus
 import com.google.home.annotation.HomeExperimentalApi
-import com.google.home.annotation.HomeExperimentalGenericApi
 import com.google.home.automation.CommandCandidate
+import com.google.home.matter.standard.OtaSoftwareUpdateRequestor
 import com.google.home.automation.DraftAutomation
 import com.google.home.automation.NodeCandidate
 import com.google.home.automation.UnknownDeviceType
+import com.google.home.getHistoryManager
+import com.google.home.getHomeBriefsManager
+import com.google.home.matter.standard.OtaRequestorDevice
 import com.google.home.userPresenceSettings
 import com.google.home.deleteHistory
 import com.google.home.google.AreaAttendanceState
 import com.google.home.google.AreaAttendanceStateTrait
 import com.google.home.google.AreaPresenceState
 import com.google.home.google.AreaPresenceStateTrait
-import com.google.home.google.Group
-import com.google.home.google.GroupManagement
 import com.google.home.google.UserPresenceSettings
 import com.google.home.google.UserPresenceSettingsTrait
-import com.example.googlehomeapisampleapp.widget.FavoriteDevicesStore
+import com.example.googlehomeapisampleapp.viewmodel.ota.OtaUiState
+import com.example.googlehomeapisampleapp.viewmodel.ota.mapUpdateStateToUiState
+import com.google.home.matter.standard.BasicInformation
+import com.google.home.matter.standard.RootNodeDevice
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -76,20 +83,23 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.flow.onStart
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.retryWhen
 import kotlinx.coroutines.flow.scan
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 
-@OptIn(ExperimentalCoroutinesApi::class)
 class HomeAppViewModel(
   val homeApp: HomeApp,
   val currentStructureRepository: CurrentStructureRepository,
@@ -105,6 +115,7 @@ class HomeAppViewModel(
     const val TAG = "HomeAppViewModel"
     private const val FEATURE_PRESENCE_SENSING_NAME = "FEATURE_PRESENCE_SENSING"
     private const val FEATURE_PRESENCE_SENSING_ID = 3L
+    private const val OTA_TIMEOUT_MILLIS = 20 * 60 * 1000L
   }
 
   // Container tracking the active navigation tab:
@@ -120,6 +131,7 @@ class HomeAppViewModel(
   fun closeCloudLinkingSheet() {
     _showCloudLinkingSheet.value = false
   }
+
 
   // Containers tracking the active object being edited:
   val selectedStructureVM: StateFlow<StructureViewModel?> =
@@ -298,7 +310,6 @@ class HomeAppViewModel(
 
   fun setSelectedStructure(structure: StructureViewModel?) {
     currentStructureRepository.setSelectedStructure(structure)
-    refreshDeviceGroups()
   }
 
   var selectedDeviceVM: MutableStateFlow<DeviceViewModel?> = MutableStateFlow(null)
@@ -306,22 +317,102 @@ class HomeAppViewModel(
   var selectedDraftVM: MutableStateFlow<DraftViewModel?> = MutableStateFlow(null)
   var selectedCandidateVMs: MutableStateFlow<List<CandidateViewModel>?> = MutableStateFlow(null)
 
-  private val _favoriteDeviceIds = MutableStateFlow(FavoriteDevicesStore.load(homeApp.context))
-  val favoriteDeviceIds: StateFlow<Set<String>> = _favoriteDeviceIds.asStateFlow()
-
-  private val _hiddenDeviceIds = MutableStateFlow(HiddenDevicesStore.load(homeApp.context))
-  val hiddenDeviceIds: StateFlow<Set<String>> = _hiddenDeviceIds.asStateFlow()
-
-  private val _deviceGroups = MutableStateFlow<List<GoogleHomeGroupOption>>(emptyList())
-  val deviceGroups: StateFlow<List<GoogleHomeGroupOption>> = _deviceGroups.asStateFlow()
-
   // Container to store returned structures from the app:
   var structureVMs: MutableStateFlow<List<StructureViewModel>> = MutableStateFlow(mutableListOf())
 
   private var hubDiscoveryVM: HubDiscoveryViewModel? = null
-  private var widgetStateMonitor: WidgetStateMonitor? = null
   val hubDiscoveryViewModel: HubDiscoveryViewModel
     get() = hubDiscoveryVM!!
+
+
+
+  private val _navigateToProxyActivity = Channel<Unit>(Channel.CONFLATED)
+  val navigateToProxyActivity = _navigateToProxyActivity.receiveAsFlow()
+
+  fun signInWithGoogleAccount(context: Context) {
+    viewModelScope.launch {
+      try {
+        Log.d(TAG, "Initiating Google Sign-In flow...")
+        // CredentialManager is responsible for interacting with various credential providers on the
+        // device
+        val credentialManager = CredentialManager.create(context)
+        // Your GCP console Web Client ID for Google Sign-In
+        val serverClientId = BuildConfig.DEFAULT_WEB_CLIENT_ID
+        // Build the request for Google ID token
+        val googleIdOption =
+          GetGoogleIdOption.Builder()
+            .setFilterByAuthorizedAccounts(false) // Show all Google accounts on the device
+            .setServerClientId(serverClientId) // embed WebClientID in token
+            .build()
+        // Build the GetCredentialRequest
+        val request = GetCredentialRequest.Builder().addCredentialOption(googleIdOption).build()
+
+        // Credential returns when user has selected an account and the getCredential call completes
+        val result = credentialManager.getCredential(context = context, request = request)
+        val credential = result.credential
+        Log.d(TAG, "get credential type: ${credential::class.java.simpleName}")
+
+        if (
+          credential is CustomCredential &&
+            credential.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL
+        ) {
+          try {
+            val googleCredential = GoogleIdTokenCredential.createFrom(credential.data)
+            googleCredential.id.let { email ->
+              Log.i(TAG, "Email found in Google ID Token: $email")
+              /*
+               Why "com.google"?
+               The string "com.google" is a standard identifier used in Android's android.accounts.
+               Account system to represent accounts managed by Google. This is often used when
+               interacting with Android's Account Manager or when using Google-specific APIs. So,
+               even if the email ends in "@gmail.com", the underlying account type or provider is
+               still considered "com.google" within the Android system.
+              */
+              val account = Account(email, "com.google")
+              homeApp.homeClientProvider.switchAccount(account.name, serverClientId)
+              Log.d(TAG, "Switched to account to : $account")
+            }
+            Log.i(TAG, "Account switch complete. Emitting navigation event.")
+            // Send an event to the channel to signal the UI to navigate.
+            _navigateToProxyActivity.send(Unit)
+          } catch (e: Exception) {
+            Log.e(TAG, "Could not convert CustomCredential to Google ID Token", e)
+            MainActivity.showError(
+              this@HomeAppViewModel,
+              "Could not convert CustomCredential to Google ID Token" + e.message,
+            )
+          }
+        } else {
+          Log.e(
+            TAG,
+            "Google Sign-In failed: Unexpected result type ${credential::class.java.simpleName}",
+          )
+          MainActivity.showError(
+            this@HomeAppViewModel,
+            "Google Sign-In failed: Unexpected result type ${credential::class.java.simpleName}",
+          )
+        }
+      } catch (e: NoCredentialException) {
+        Log.e(TAG, "No credentials available", e)
+        MainActivity.showError(
+          this@HomeAppViewModel,
+          "No accounts found. Please add a Google Account to your device settings.",
+        )
+      } catch (e: GetCredentialException) {
+        Log.e(TAG, "Credential retrieval failed", e)
+        // You might not want to show an error if the user simply cancelled the dialog
+        if (!e.message.orEmpty().contains("User cancelled")) {
+          MainActivity.showError(this@HomeAppViewModel, "Sign in failed: ${e.message}")
+        }
+      } catch (e: Exception) {
+        Log.e(TAG, "Google Sign-In failed with unexpected error", e)
+        MainActivity.showError(
+          this@HomeAppViewModel,
+          "Google Sign-In failed with unexpected error" + e.message,
+        )
+      }
+    }
+  }
 
   private val selectedStructureFlow: Flow<Structure> =
     selectedStructureVM
@@ -352,30 +443,15 @@ class HomeAppViewModel(
       // Resubscribe or cancel subscription when permission is updated
       homeApp.permissionsManager.permissionUpdatedEvent
         .map { homeApp.permissionsManager.isSignedIn.value }
+        .distinctUntilChanged()
         .collect { isSignedIn ->
           Log.i(TAG, "Sign-in state changed: $isSignedIn")
           structuresJob?.cancel()
-          widgetStateMonitor?.stop()
           if (isSignedIn) {
             structuresJob = viewModelScope.launch { subscribeToStructures() }
-            widgetStateMonitor = WidgetStateMonitor(
-              context = homeApp.context,
-              homeClient = homeApp.homeClient,
-              scope = viewModelScope,
-            ).also { it.start() }
           } else {
             Log.d(TAG, "Cancel the job to subscribe to structure")
           }
-          viewModelScope.launch { updateLightDialWidgets(homeApp.context) }
-        }
-    }
-
-    viewModelScope.launch {
-      selectedStructureVM
-        .filterNotNull()
-        .flatMapLatest { it.deviceVMs }
-        .collect {
-          refreshDeviceGroups().join()
         }
     }
   }
@@ -395,143 +471,7 @@ class HomeAppViewModel(
       if (selectedStructureVM.value == null && structureVMList.isNotEmpty()) {
         currentStructureRepository.setSelectedStructure(structureVMList.first())
       }
-      refreshDeviceGroups()
     }
-  }
-
-  @OptIn(HomeExperimentalApi::class, HomeExperimentalGenericApi::class)
-  fun refreshDeviceGroups(): Job = viewModelScope.launch {
-    try {
-      val structureDeviceIds = selectedStructureVM.value?.deviceVMs?.value
-        ?.map { it.id }
-        ?.toSet()
-        .orEmpty()
-      val groups = homeApp.homeClient.entities(DeviceGroup).first().mapNotNull { group ->
-        val memberIds = runCatching {
-          group.devices(enableMultipartDevices = true).first().map { it.id.id }.toSet()
-        }.getOrDefault(emptySet())
-        if (memberIds.isEmpty() || (structureDeviceIds.isNotEmpty() && memberIds.none { it in structureDeviceIds })) {
-          return@mapNotNull null
-        }
-        val groupTrait: Group? = runCatching { group.trait(Group) }.getOrNull()
-        val groupName = groupTrait?.let { trait ->
-          sequenceOf("getName", "getCurrentName")
-            .mapNotNull { methodName ->
-              runCatching {
-                trait.javaClass.getMethod(methodName).invoke(trait) as? String
-              }.getOrNull()
-            }
-            .firstOrNull()
-        }
-          ?.takeIf { it.isNotBlank() }
-          ?: "Google Home 群組"
-        GoogleHomeGroupOption(group.id.id, groupName, memberIds)
-      }.sortedBy { it.name }
-      _deviceGroups.emit(groups)
-    } catch (error: Exception) {
-      Log.w(TAG, "Unable to load Google Home device groups: ${error.message}")
-      _deviceGroups.emit(emptyList())
-    }
-  }
-
-  @OptIn(HomeExperimentalApi::class, HomeExperimentalGenericApi::class)
-  fun createDeviceGroup(name: String, deviceIds: Set<String>): Job = viewModelScope.launch {
-    val structure = selectedStructureVM.value?.structure ?: return@launch
-    try {
-      val groupManagement = structure.trait(GroupManagement).firstOrNull()
-        ?: error("Google Home 群組管理目前不可用")
-      val trimmedName = name.trim()
-      require(trimmedName.isNotEmpty()) { "群組名稱不可為空白" }
-      require(deviceIds.isNotEmpty()) { "至少選擇一台裝置" }
-      groupManagement.createUserDefinedGroup(trimmedName, deviceIds.toList())
-      refreshDeviceGroups().join()
-    } catch (error: Exception) {
-      MainActivity.showError(this@HomeAppViewModel, "建立群組失敗：${error.message}")
-    }
-  }
-
-  @OptIn(HomeExperimentalApi::class, HomeExperimentalGenericApi::class)
-  fun updateDeviceGroup(group: GoogleHomeGroupOption, name: String, deviceIds: Set<String>): Job = viewModelScope.launch {
-    val structure = selectedStructureVM.value?.structure ?: return@launch
-    try {
-      val groupManagement = structure.trait(GroupManagement).firstOrNull()
-        ?: error("Google Home 群組管理目前不可用")
-      require(name.trim().isNotEmpty()) { "群組名稱不可為空白" }
-      require(deviceIds.isNotEmpty()) { "至少選擇一台裝置" }
-      val additions = (deviceIds - group.deviceIds).toList()
-      val removals = (group.deviceIds - deviceIds).toList()
-      if (additions.isNotEmpty()) groupManagement.addGroupMembers(group.id, additions)
-      if (removals.isNotEmpty()) groupManagement.removeGroupMembers(group.id, removals)
-      val entity = homeApp.homeClient.entities(DeviceGroup).first().firstOrNull { it.id.id == group.id }
-      entity?.trait(Group)?.update(
-        optimisticReturn = {},
-        init = { setName(name.trim()) },
-      )
-      refreshDeviceGroups().join()
-    } catch (error: Exception) {
-      MainActivity.showError(this@HomeAppViewModel, "更新群組失敗：${error.message}")
-    }
-  }
-
-  @OptIn(HomeExperimentalApi::class, HomeExperimentalGenericApi::class)
-  fun deleteDeviceGroup(group: GoogleHomeGroupOption): Job = viewModelScope.launch {
-    val structure = selectedStructureVM.value?.structure ?: return@launch
-    try {
-      structure.trait(GroupManagement).firstOrNull()?.deleteGroup(group.id)
-      refreshDeviceGroups().join()
-    } catch (error: Exception) {
-      MainActivity.showError(this@HomeAppViewModel, "刪除群組失敗：${error.message}")
-    }
-  }
-
-  fun selectWidgetTarget(target: WidgetTargetOption) {
-    val visibleTargetDeviceIds = target.deviceIds - hiddenDeviceIds.value
-    val devices = selectedStructureVM.value?.deviceVMs?.value.orEmpty()
-      .filter { it.id in visibleTargetDeviceIds }
-    val snapshot = widgetSnapshotFromViewModels(devices)
-    LightWidgetStore.selectTarget(
-      context = homeApp.context,
-      kind = target.kind,
-      targetId = target.id,
-      displayName = target.name,
-      deviceIds = visibleTargetDeviceIds,
-      isOn = snapshot.isOn,
-      brightnessLevel = snapshot.brightnessLevel,
-      colorHue = snapshot.hue,
-      colorSaturation = snapshot.saturation,
-      colorName = snapshot.colorName,
-    )
-    widgetStateMonitor?.restart()
-    viewModelScope.launch { updateLightDialWidgets(homeApp.context) }
-  }
-
-  fun hideDevice(deviceId: String) {
-    val updatedIds = _hiddenDeviceIds.value + deviceId
-    _hiddenDeviceIds.value = updatedIds
-    HiddenDevicesStore.save(homeApp.context, updatedIds)
-
-    if (selectedDeviceVM.value?.id == deviceId) {
-      selectedDeviceVM.value = null
-    }
-
-    val updatedFavorites = _favoriteDeviceIds.value - deviceId
-    _favoriteDeviceIds.value = updatedFavorites
-    FavoriteDevicesStore.save(homeApp.context, updatedFavorites)
-    updateWidgetTargetForVisibility()
-  }
-
-  fun showDevice(deviceId: String) {
-    val updatedIds = _hiddenDeviceIds.value - deviceId
-    _hiddenDeviceIds.value = updatedIds
-    HiddenDevicesStore.save(homeApp.context, updatedIds)
-    updateWidgetTargetForVisibility()
-  }
-
-  private fun updateWidgetTargetForVisibility() {
-    // The configured widget target keeps hidden devices; they are only skipped when the widget
-    // resolves devices to command or read. Restart the monitor so it observes the new visible set.
-    widgetStateMonitor?.restart()
-    viewModelScope.launch { updateLightDialWidgets(homeApp.context) }
   }
 
   /**
@@ -549,6 +489,10 @@ class HomeAppViewModel(
   fun startHubDiscovery() {
     hubDiscoveryVM?.startDiscovery()
   }
+
+
+
+
 
   /** Shows automation candidates for the selected structure. */
   @OptIn(HomeExperimentalApi::class)
@@ -636,127 +580,6 @@ class HomeAppViewModel(
   fun moveDeviceToRoom(device: DeviceViewModel, room: RoomViewModel): Job = viewModelScope.launch {
     val vm = selectedStructureVM.value ?: return@launch
     vm.moveDeviceToRoom(device, room)
-  }
-
-  fun toggleFavorite(deviceId: String) {
-    val nextIds = _favoriteDeviceIds.value.toMutableSet().apply {
-      if (!add(deviceId)) remove(deviceId)
-    }.toSet()
-    _favoriteDeviceIds.value = nextIds
-    FavoriteDevicesStore.save(homeApp.context, nextIds)
-  }
-
-  fun setGroupPower(deviceVMs: List<DeviceViewModel>, enabled: Boolean): Job = viewModelScope.launch {
-    val deviceIds = deviceVMs.map { it.id }
-    val commandToken = WidgetCommandCoordinator.begin(
-      context = homeApp.context,
-      reason = "app_group_power",
-      actionDeviceIds = deviceIds,
-      expectedIsOn = enabled,
-    )
-    val failures = DeviceGroupController.setPower(deviceVMs.map { it.device }, enabled)
-    if (commandToken != null) {
-      if (failures.size == deviceVMs.size) {
-        WidgetCommandCoordinator.fail(
-          homeApp.context,
-          commandToken,
-          "${failures.size} 台裝置控制失敗",
-        )
-      } else {
-        WidgetCommandCoordinator.complete(
-          context = homeApp.context,
-          homeClient = homeApp.homeClient,
-          token = commandToken,
-          partialFailure = failures.takeIf { it.isNotEmpty() }?.let {
-            "${it.size} 台裝置控制失敗"
-          },
-        )
-      }
-    }
-    if (failures.isNotEmpty()) {
-      MainActivity.showWarning(
-        this@HomeAppViewModel,
-        "${failures.size} 台裝置操作失敗：${failures.joinToString("、")}",
-      )
-    }
-  }
-
-  fun setGroupBrightness(deviceVMs: List<DeviceViewModel>, brightness: Float): Job = viewModelScope.launch {
-    val brightnessLevel = (brightness * 254f).toInt().coerceIn(0, 254)
-    val commandToken = WidgetCommandCoordinator.begin(
-      context = homeApp.context,
-      reason = "app_group_brightness",
-      actionDeviceIds = deviceVMs.map { it.id },
-      expectedIsOn = brightnessLevel > 0,
-      expectedBrightnessLevel = brightnessLevel,
-    )
-    val failures = DeviceGroupController.setBrightness(deviceVMs.map { it.device }, brightness)
-    if (commandToken != null) {
-      if (failures.size == deviceVMs.size) {
-        WidgetCommandCoordinator.fail(
-          homeApp.context,
-          commandToken,
-          "${failures.size} 台燈具亮度調整失敗",
-        )
-      } else {
-        WidgetCommandCoordinator.complete(
-          context = homeApp.context,
-          homeClient = homeApp.homeClient,
-          token = commandToken,
-          partialFailure = failures.takeIf { it.isNotEmpty() }?.let {
-            "${it.size} 台燈具亮度調整失敗"
-          },
-        )
-      }
-    }
-    if (failures.isNotEmpty()) {
-      MainActivity.showWarning(
-        this@HomeAppViewModel,
-        "${failures.size} 台燈具亮度調整失敗：${failures.joinToString("、")}",
-      )
-    }
-  }
-
-  suspend fun syncWidgetAfterDeviceAction(
-    deviceIds: Collection<String>,
-    isOn: Boolean? = null,
-    brightnessLevel: Int? = null,
-    colorHue: Float? = null,
-    colorSaturation: Float? = null,
-    syncError: String? = null,
-  ) {
-    val context = homeApp.context
-    val state = LightWidgetStore.load(context)
-    val targetDeviceIds = state.deviceIds.ifEmpty { setOfNotNull(state.deviceId) }
-    val matchesTarget = deviceIds.any { it in targetDeviceIds }
-    if (targetDeviceIds.isEmpty() || !matchesTarget) {
-      Log.w(
-        TAG,
-        "Widget action ignored because it does not match the configured target: " +
-          "target=${state.targetKind}:${state.targetId}, targetDevices=$targetDeviceIds, actionDevices=$deviceIds",
-      )
-      return
-    }
-
-    runCatching {
-      val commandToken = WidgetCommandCoordinator.begin(
-        context = context,
-        reason = "app_device_action",
-        actionDeviceIds = deviceIds,
-        expectedIsOn = isOn,
-        expectedBrightnessLevel = brightnessLevel,
-        expectedHue = colorHue,
-        expectedSaturation = colorSaturation,
-      ) ?: return
-      WidgetCommandCoordinator.complete(
-        context = context,
-        homeClient = homeApp.homeClient,
-        token = commandToken,
-        partialFailure = syncError,
-      )
-    }.onFailure { error ->
-      Log.w(TAG, "Unable to publish device action to the widget", error)
-    }
   }
 
   /**
@@ -876,4 +699,34 @@ class HomeAppViewModel(
       selectedDraftVM.emit(draftVM)
     }
   }
+  /**
+   * Creates and shows a predefined draft for the "Camera Scene Detected" Natural
+   * Language camera starter automation. Uses a generic, location-independent query
+   * ("a person is detected") so it's reliably testable on any camera.
+   *
+   * This draft requires a camera and an OnOff-capable light in the selected structure.
+   * If either required device is missing, an error message is shown instead.
+   */
+  fun showPredefinedCameraSceneDetectedLightDraft() {
+    viewModelScope.launch {
+      val structureVM = selectedStructureVM.value ?: return@launch
+      val repository = AutomationsRepository()
+
+      val draftVM = repository.createCameraSceneDetectedLightAutomationDraft(
+        structureVM.deviceVMs.value
+      )
+
+      if (draftVM == null) {
+        MainActivity.showError(
+          this@HomeAppViewModel,
+          "This automation requires:\n• 1 Camera\n• 1 OnOff-capable Light\n\nPlease add these devices and try again."
+        )
+        return@launch
+      }
+
+      selectedDraftVM.emit(draftVM)
+    }
+  }
+
+
 }

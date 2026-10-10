@@ -28,25 +28,38 @@ import com.google.home.google.UserPresenceSettings
 import com.google.home.google.Assistant
 import com.google.home.google.AssistantBroadcast
 import com.google.home.google.AssistantFulfillment
+import com.google.home.google.AvStreamAnalysis
+import com.google.home.google.CameraAvStreamManagement
+import com.google.home.google.CameraHistory
+import com.google.home.google.CameraSnapshot
+import com.google.home.google.Chime
+import com.google.home.google.ChimeThemes
 import com.google.home.google.ExtendedApplicationLauncher
 import com.google.home.google.ExtendedBasicInformation
 import com.google.home.google.ExtendedColorControl
 import com.google.home.google.ExtendedLevelControl
 import com.google.home.google.ExtendedMediaInput
 import com.google.home.google.ExtendedMediaPlayback
-import com.google.home.google.Group
-import com.google.home.google.GroupManagement
-import com.google.home.google.GroupMembership
+import com.google.home.google.FaceLibrary
+import com.google.home.google.GoogleCameraDevice
 import com.google.home.google.GoogleDisplayDevice
+import com.google.home.google.GoogleDoorbellDevice
 import com.google.home.google.GoogleTVDevice
 import com.google.home.google.MediaActivityState
 import com.google.home.google.Notification
+import com.google.home.google.PushAvStreamTransport
+import com.google.home.google.RecordingMode
+import com.google.home.google.SearchableHome
 import com.google.home.google.Time
+import com.google.home.google.VideoAnalysis
 import com.google.home.google.VoiceStarter
 import com.google.home.google.Volume
+import com.google.home.google.WebRtcLiveView
+import com.google.home.google.ZoneManagement
 import com.google.home.matter.standard.AudioOutput
 import com.google.home.matter.standard.BasicInformation
 import com.google.home.matter.standard.BooleanState
+import com.google.home.matter.standard.ChimeDevice
 import com.google.home.matter.standard.ColorTemperatureLightDevice
 import com.google.home.matter.standard.ContactSensorDevice
 import com.google.home.matter.standard.DimmableLightDevice
@@ -68,6 +81,8 @@ import com.google.home.matter.standard.OnOffLightDevice
 import com.google.home.matter.standard.OnOffLightSwitchDevice
 import com.google.home.matter.standard.OnOffPluginUnitDevice
 import com.google.home.matter.standard.OnOffSensorDevice
+import com.google.home.matter.standard.OtaRequestorDevice
+import com.google.home.matter.standard.OtaSoftwareUpdateRequestor
 import com.google.home.matter.standard.RootNodeDevice
 import com.google.home.matter.standard.SpeakerDevice
 import com.google.home.matter.standard.TemperatureControl
@@ -98,6 +113,7 @@ object HomeModule {
 @Singleton
 fun provideSupportedDeviceTypes(): @JvmSuppressWildcards List<DeviceTypeFactory<out DeviceType>> =
 listOf(
+    ChimeDevice,
     ColorTemperatureLightDevice,
     ContactSensorDevice,
     DimmableLightDevice,
@@ -105,7 +121,9 @@ listOf(
     ExtendedColorLightDevice,
     FanDevice,
     GenericSwitchDevice,
+    GoogleCameraDevice,
     GoogleDisplayDevice,
+    GoogleDoorbellDevice,
     GoogleTVDevice,
     LightSensorDevice,
     OccupancySensorDevice,
@@ -113,6 +131,7 @@ listOf(
     OnOffLightSwitchDevice,
     OnOffPluginUnitDevice,
     OnOffSensorDevice,
+    OtaRequestorDevice,
     RootNodeDevice,
     SpeakerDevice,
     TemperatureSensorDevice,
@@ -133,8 +152,14 @@ listOf(
       AssistantBroadcast,
       AssistantFulfillment,
       AudioOutput,
+      AvStreamAnalysis,
       BasicInformation,
       BooleanState,
+      CameraAvStreamManagement,
+      CameraHistory,
+      CameraSnapshot,
+      Chime,
+      ChimeThemes,
       DoorLock,
       ExtendedApplicationLauncher,
       ExtendedBasicInformation,
@@ -142,9 +167,7 @@ listOf(
       ExtendedLevelControl,
       ExtendedMediaInput,
       ExtendedMediaPlayback,
-      Group,
-      GroupManagement,
-      GroupMembership,
+      FaceLibrary,
       FanControl,
       IlluminanceMeasurement,
       LevelControl,
@@ -154,13 +177,20 @@ listOf(
       Notification,
       OccupancySensing,
       OnOff,
+      OtaSoftwareUpdateRequestor,
+      PushAvStreamTransport,
+      RecordingMode,
+      SearchableHome,
       TemperatureControl,
       TemperatureMeasurement,
       Thermostat,
       Time,
+      VideoAnalysis,
       VoiceStarter,
       Volume,
+      WebRtcLiveView,
       WindowCovering,
+      ZoneManagement,
   )
 
   /**
@@ -189,6 +219,8 @@ listOf(
   fun provideHomeConfig(registry: FactoryRegistry): HomeConfig = HomeConfig(
     coroutineContext = Dispatchers.IO,
     factoryRegistry = registry,
+    // If you are not using advanced camera features, you should continue to use the original
+    // scope by changing this to HOME_PLATFORM_SCOPE_VERSION_1.
     homePlatformScope = HomeConfig.HomePlatformScope.HOME_PLATFORM_SCOPE_VERSION_2
   )
 

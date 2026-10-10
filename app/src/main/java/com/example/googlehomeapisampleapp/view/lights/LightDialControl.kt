@@ -1,18 +1,18 @@
 package com.example.googlehomeapisampleapp.view.lights
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
@@ -21,10 +21,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
@@ -39,6 +39,7 @@ import com.google.home.matter.standard.LevelControlTrait
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlin.math.PI
+import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.roundToInt
 import kotlin.math.sin
@@ -50,29 +51,20 @@ fun LightDialControl(
   isEnabled: Boolean,
   scope: CoroutineScope,
   onError: (String) -> Unit,
-  onBrightnessChanged: suspend (Int) -> Unit = {},
-  onColorChanged: suspend (Float, Float) -> Unit = { _, _ -> },
 ) {
-  val currentBrightness = (brightnessTrait?.currentLevel?.toInt() ?: 0)
-    .coerceIn(0, 254).toFloat() / 254f
+  val currentBrightness = (brightnessTrait?.currentLevel?.toInt() ?: 127)
+    .coerceIn(0, 254)
+    .toFloat() / 254f
   var brightness by remember(brightnessTrait?.currentLevel) { mutableFloatStateOf(currentBrightness) }
-  val currentColorValue = (
-    brightnessTrait?.currentLevel?.toInt()?.let { it / 254f }
-      ?: colorTrait?.currentValue
-      ?: 1f
-    ).coerceIn(0f, 1f)
 
   Column(
-    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 20.dp),
+    modifier = Modifier
+      .fillMaxWidth()
+      .padding(horizontal = 24.dp, vertical = 16.dp),
     horizontalAlignment = Alignment.CenterHorizontally,
-    verticalArrangement = Arrangement.spacedBy(4.dp),
   ) {
-    Text("Brightness", style = MaterialTheme.typography.titleLarge)
-    Text(
-      "Drag the dial to adjust the light level",
-      style = MaterialTheme.typography.bodyMedium,
-      color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
+    Text("燈光控制", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+    Text("拖曳旋鈕調整亮度", style = MaterialTheme.typography.bodyMedium)
     BrightnessDial(
       value = brightness,
       enabled = isEnabled && brightnessTrait != null,
@@ -81,16 +73,14 @@ fun LightDialControl(
         val trait = brightnessTrait ?: return@BrightnessDial
         scope.launch {
           try {
-            val level = (newBrightness * 254).roundToInt().coerceIn(0, 254)
             trait.moveToLevelWithOnOff(
-              level = level.toUByte(),
+              level = (newBrightness * 254).roundToInt().toUByte(),
               transitionTime = null,
               optionsMask = LevelControlTrait.OptionsBitmap(),
               optionsOverride = LevelControlTrait.OptionsBitmap(),
             )
-            onBrightnessChanged(level)
           } catch (error: HomeException) {
-            onError("Brightness update failed: ${error.message}")
+            onError("亮度調整失敗：${error.message}")
           }
         }
       },
@@ -98,7 +88,7 @@ fun LightDialControl(
 
     if (colorTrait != null) {
       Text(
-        text = "Light color",
+        text = "燈色",
         style = MaterialTheme.typography.titleMedium,
         modifier = Modifier.padding(top = 12.dp, bottom = 8.dp),
       )
@@ -107,16 +97,9 @@ fun LightDialControl(
         onColorSelected = { hue, saturation ->
           scope.launch {
             try {
-              val normalizedHue = normalizeHue(hue)
-              val normalizedSaturation = saturation.coerceIn(0f, 1f)
-              colorTrait.moveToColorHsv(
-                hue = normalizedHue,
-                saturation = normalizedSaturation,
-                value = currentColorValue,
-              )
-              onColorChanged(normalizedHue, normalizedSaturation)
+              colorTrait.moveToColorHsv(hue = hue, saturation = saturation, value = 1f)
             } catch (error: HomeException) {
-              onError("Color update failed: ${error.message}")
+              onError("燈色調整失敗：${error.message}")
             }
           }
         },
@@ -126,159 +109,94 @@ fun LightDialControl(
 }
 
 @Composable
-fun BrightnessDial(
+private fun BrightnessDial(
   value: Float,
   enabled: Boolean,
   onValueChange: (Float) -> Unit,
   onValueChangeFinished: (Float) -> Unit,
-  accentColor: Color? = null,
-  onDragStart: (Offset, Float, Float) -> Unit = { _, _, _ -> },
-  onDragMove: (Offset, Float, Float) -> Unit = { _, _, _ -> },
-  onDragCancel: () -> Unit = {},
 ) {
-  val accent = accentColor ?: MaterialTheme.colorScheme.primary
-  val track = MaterialTheme.colorScheme.surfaceVariant
-  val surface = MaterialTheme.colorScheme.surface
-  val displayValue = value.coerceIn(0f, 1f)
-  val latestValue = rememberUpdatedState(value)
-  val latestOnValueChange = rememberUpdatedState(onValueChange)
-  val latestOnValueChangeFinished = rememberUpdatedState(onValueChangeFinished)
-  val latestOnDragStart = rememberUpdatedState(onDragStart)
-  val latestOnDragMove = rememberUpdatedState(onDragMove)
-  val latestOnDragCancel = rememberUpdatedState(onDragCancel)
+  val accent = Color(0xFFFFC857)
   Box(
-    modifier = Modifier.padding(top = 16.dp).size(210.dp).pointerInput(enabled) {
-      if (!enabled) return@pointerInput
-      var draggedValue = latestValue.value
-      detectDragGestures(
-        onDragStart = { offset ->
-          draggedValue = brightnessDialValue(
-            offset.x,
-            offset.y,
-            size.width.toFloat(),
-            size.height.toFloat(),
-          )
-          latestOnDragStart.value(
-            offset,
-            draggedValue,
-            brightnessDialRawAngle(
-              offset.x,
-              offset.y,
-              size.width.toFloat(),
-              size.height.toFloat(),
-            ),
-          )
-          latestOnValueChange.value(draggedValue)
-        },
-        onDrag = { change, _ ->
-          change.consume()
-          draggedValue = brightnessDialValue(
-            change.position.x,
-            change.position.y,
-            size.width.toFloat(),
-            size.height.toFloat(),
-          )
-          latestOnDragMove.value(
-            change.position,
-            draggedValue,
-            brightnessDialRawAngle(
-              change.position.x,
-              change.position.y,
-              size.width.toFloat(),
-              size.height.toFloat(),
-            ),
-          )
-          latestOnValueChange.value(draggedValue)
-        },
-        onDragEnd = { latestOnValueChangeFinished.value(draggedValue) },
-        onDragCancel = { latestOnDragCancel.value() },
-      )
-    },
+    modifier = Modifier
+      .padding(top = 12.dp)
+      .size(190.dp)
+      .pointerInput(enabled) {
+        if (!enabled) return@pointerInput
+        detectDragGestures(
+          onDragStart = { offset -> onValueChange(dialValue(offset, size.width.toFloat(), size.height.toFloat())) },
+          onDrag = { change, _ ->
+            change.consume()
+            onValueChange(dialValue(change.position, size.width.toFloat(), size.height.toFloat()))
+          },
+          onDragEnd = { onValueChangeFinished(value) },
+        )
+      },
     contentAlignment = Alignment.Center,
   ) {
-    Canvas(modifier = Modifier.fillMaxSize()) {
-      val stroke = 20.dp.toPx()
+    Canvas(modifier = Modifier.matchParentSize()) {
+      val stroke = 18.dp.toPx()
       val diameter = size.minDimension - stroke
       val topLeft = Offset((size.width - diameter) / 2, (size.height - diameter) / 2)
-      val dialSize = androidx.compose.ui.geometry.Size(diameter, diameter)
-      drawCircle(
-        color = surface,
-        radius = diameter / 2 - stroke / 2,
-        center = Offset(size.width / 2, size.height / 2),
-      )
       drawArc(
-        color = track,
-        startAngle = BRIGHTNESS_DIAL_START_ANGLE,
-        sweepAngle = BRIGHTNESS_DIAL_SWEEP_ANGLE,
+        color = Color(0xFF324038),
+        startAngle = 135f,
+        sweepAngle = 270f,
         useCenter = false,
         topLeft = topLeft,
-        size = dialSize,
+        size = androidx.compose.ui.geometry.Size(diameter, diameter),
         style = Stroke(stroke, cap = StrokeCap.Round),
       )
       drawArc(
-        color = if (enabled) accent else track,
-        startAngle = BRIGHTNESS_DIAL_START_ANGLE,
-        sweepAngle = BRIGHTNESS_DIAL_SWEEP_ANGLE * displayValue,
+        color = accent,
+        startAngle = 135f,
+        sweepAngle = 270f * value,
         useCenter = false,
         topLeft = topLeft,
-        size = dialSize,
+        size = androidx.compose.ui.geometry.Size(diameter, diameter),
         style = Stroke(stroke, cap = StrokeCap.Round),
       )
-      val angle = Math.toRadians(brightnessDialAngleForValue(displayValue).toDouble())
+      val angle = Math.toRadians((135f + 270f * value).toDouble())
       val center = Offset(size.width / 2, size.height / 2)
       val radius = diameter / 2
       drawCircle(
-        color = if (enabled) accent else track,
+        color = accent,
         radius = stroke / 2,
         center = center + Offset(cos(angle).toFloat() * radius, sin(angle).toFloat() * radius),
       )
     }
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-      Text(
-         "${(displayValue * 100).roundToInt()}%",
-        style = MaterialTheme.typography.headlineLarge,
-        fontWeight = FontWeight.Bold,
-        color = if (enabled) MaterialTheme.colorScheme.onSurface
-        else MaterialTheme.colorScheme.onSurfaceVariant,
-      )
-      Text(
-        if (enabled) "Brightness" else "Offline",
-        style = MaterialTheme.typography.bodyMedium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-      )
+      Text("${(value * 100).roundToInt()}%", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
+      Text("亮度", style = MaterialTheme.typography.bodyMedium)
     }
   }
 }
 
-private fun normalizeHue(hue: Float): Float =
-  ((hue % BRIGHTNESS_DIAL_FULL_CIRCLE) + BRIGHTNESS_DIAL_FULL_CIRCLE) % BRIGHTNESS_DIAL_FULL_CIRCLE
+private fun dialValue(offset: Offset, width: Float, height: Float): Float {
+  val angle = (Math.toDegrees(atan2(offset.y - height / 2, offset.x - width / 2).toDouble()) + 450.0) % 360.0
+  return ((angle - 135.0) / 270.0).toFloat().coerceIn(0f, 1f)
+}
 
 @Composable
 private fun ColorPalette(enabled: Boolean, onColorSelected: (Float, Float) -> Unit) {
   val colors = listOf(
-    "Warm" to (36f to 0.32f),
-    "Red" to (0f to 0.95f),
-    "Yellow" to (50f to 0.9f),
-    "Green" to (125f to 0.85f),
-    "Blue" to (220f to 0.9f),
-    "Violet" to (280f to 0.85f),
+    "暖白" to Pair(36f, 0.32f),
+    "紅" to Pair(0f, 0.95f),
+    "黃" to Pair(50f, 0.9f),
+    "綠" to Pair(125f, 0.85f),
+    "藍" to Pair(220f, 0.9f),
+    "紫" to Pair(280f, 0.85f),
   )
   Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
     colors.chunked(3).forEach { row ->
       Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         row.forEach { (name, hsv) ->
-          val buttonColor = Color.hsv(hsv.first, hsv.second, 0.9f)
           Button(
             enabled = enabled,
             onClick = { onColorSelected(hsv.first, hsv.second) },
             modifier = Modifier.width(86.dp).height(42.dp),
-            shape = RoundedCornerShape(14.dp),
-            colors = ButtonDefaults.buttonColors(
-              containerColor = buttonColor,
-              contentColor = Color.Black,
-            ),
+            colors = ButtonDefaults.buttonColors(containerColor = Color.hsv(hsv.first, hsv.second, 0.9f)),
           ) {
-            Text(name)
+            Text(name, color = Color.Black)
           }
         }
       }

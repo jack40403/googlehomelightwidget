@@ -15,48 +15,28 @@ limitations under the License.
 
 package com.example.googlehomeapisampleapp.ui.theme
 
+import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Shapes
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.platform.LocalContext
 
 // Dark theme default color palette:
 private val DarkColorScheme = darkColorScheme(
-  primary = TealPrimaryDark,
-  onPrimary = Color(0xFF003737),
-  primaryContainer = TealPrimaryContainerDark,
-  onPrimaryContainer = Color(0xFF6FF7F5),
-  secondary = SlateSecondaryDark,
-  tertiary = CoralTertiaryDark,
-  background = AppBackgroundDark,
-  surface = AppSurfaceDark,
-  surfaceVariant = Color(0xFF3F484A),
+  primary = Purple80,
+  secondary = PurpleGrey80,
+  tertiary = Pink80
 )
 
 // Light theme default color palette:
 private val LightColorScheme = lightColorScheme(
-  primary = TealPrimary,
-  onPrimary = Color.White,
-  primaryContainer = TealPrimaryContainer,
-  onPrimaryContainer = Color(0xFF002020),
-  secondary = SlateSecondary,
-  tertiary = CoralTertiary,
-  background = AppBackground,
-  surface = Color.White,
-  surfaceVariant = AppSurfaceVariant,
-)
-
-private val AppShapes = Shapes(
-  extraSmall = RoundedCornerShape(8.dp),
-  small = RoundedCornerShape(12.dp),
-  medium = RoundedCornerShape(20.dp),
-  large = RoundedCornerShape(28.dp),
-  extraLarge = RoundedCornerShape(32.dp),
+  primary = Purple40,
+  secondary = PurpleGrey40,
+  tertiary = Pink40
 )
 
 @Composable
@@ -65,10 +45,19 @@ fun GoogleHomeAPISampleAppTheme(
   dynamicColor: Boolean = false,
   content: @Composable () -> Unit,
 ) {
-  val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
+  val colorScheme = when {
+    // If the dynamic color is set and the system supports it, apply dynamic colors:
+    dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
+      if (darkTheme) dynamicDarkColorScheme(LocalContext.current)
+      else dynamicLightColorScheme(LocalContext.current)
+    }
+    // Otherwise, apply a predefined scheme:
+    darkTheme -> DarkColorScheme
+    else -> LightColorScheme
+  }
+  // Apply the selected values on theme:
   MaterialTheme(
     colorScheme = colorScheme,
-    shapes = AppShapes,
     typography = Typography,
     content = content
   )

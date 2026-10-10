@@ -15,6 +15,7 @@ limitations under the License.
 
 package com.example.googlehomeapisampleapp.view.automations
 
+import android.content.Intent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -26,21 +27,20 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowDropDown
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -50,11 +50,14 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.core.net.toUri
 import com.example.googlehomeapisampleapp.R
-import com.example.googlehomeapisampleapp.view.devices.DevicesAccountButton
 import com.example.googlehomeapisampleapp.view.shared.TabbedMenuView
 import com.example.googlehomeapisampleapp.viewmodel.HomeAppViewModel
 import com.example.googlehomeapisampleapp.viewmodel.automations.AutomationViewModel
@@ -68,94 +71,140 @@ import kotlinx.coroutines.launch
 fun AutomationsAccountButton(
   homeAppVM: HomeAppViewModel,
   onNavigateToUserManagement: () -> Unit = {},
-  onNavigateToPresenceSettings: () -> Unit = {},
+  onNavigateToPresenceSettings: () -> Unit = {}
 ) {
-  DevicesAccountButton(
-    homeAppVM = homeAppVM,
-    onNavigateToUserManagement = onNavigateToUserManagement,
-    onNavigateToPresenceSettings = onNavigateToPresenceSettings,
-  )
+  val context = LocalContext.current
+  var expanded by remember { mutableStateOf(false) }
+  /**
+   * UI Row containing:
+   * - Account Icon Button: triggers a permission request using PermissionsManager.
+   * - Overflow Menu: opens a dropdown with a "Revoke Permissions" option.
+   *
+   * Selecting "Revoke Permissions" launches an intent to Google’s account management page for
+   * manually revoking app access.
+   */
+  Row {
+    IconButton(
+      onClick = { homeAppVM.homeApp.permissionsManager.requestPermissions(isForceRefresh = true) },
+      modifier = Modifier.size(48.dp).background(Color.Transparent),
+    ) {
+      Icon(
+        imageVector = Icons.Default.AccountCircle,
+        contentDescription = "",
+        modifier = Modifier.fillMaxSize(),
+        tint = MaterialTheme.colorScheme.primary,
+      )
+    }
+
+    IconButton(onClick = { expanded = true }) {
+      Icon(Icons.Default.MoreVert, contentDescription = "Menu")
+    }
+
+    DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+      DropdownMenuItem(
+        text = { Text("Revoke Permissions") },
+        onClick = {
+          expanded = false
+          val intent =
+            Intent(
+              Intent.ACTION_VIEW,
+              "https://myaccount.google.com/u/2/connections?utm_source=3p".toUri(),
+            )
+          homeAppVM.homeApp.context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        },
+      )
+      DropdownMenuItem(
+        text = { Text("Google Sign-In") },
+        onClick = { homeAppVM.signInWithGoogleAccount(context) },
+      )
+      DropdownMenuItem(
+        text = { Text("Link GHP Playground") },
+        onClick = {
+          expanded = false
+          homeAppVM.openCloudLinkingSheet()
+        },
+      )
+      DropdownMenuItem(
+        text = { Text("User Management") },
+        onClick = {
+          expanded = false
+          onNavigateToUserManagement()
+        }
+      )
+      DropdownMenuItem(
+        text = { Text("Presence Settings") },
+        onClick = {
+          expanded = false
+          onNavigateToPresenceSettings()
+        }
+      )
+    }
+  }
 }
 
 @Composable
 fun AutomationsView(
   homeAppVM: HomeAppViewModel,
   onNavigateToUserManagement: () -> Unit = {},
-  onNavigateToPresenceSettings: () -> Unit = {},
+  onNavigateToPresenceSettings: () -> Unit = {}
 ) {
-  var structureMenuExpanded by remember { mutableStateOf(false) }
-  val structureVMs = homeAppVM.structureVMs.collectAsState().value
-  val selectedStructureVM = homeAppVM.selectedStructureVM.collectAsState().value
-  val structureName = selectedStructureVM?.name ?: stringResource(R.string.automations_text_loading)
+  val scope: CoroutineScope = rememberCoroutineScope()
+  var expanded: Boolean by remember { mutableStateOf(false) }
 
-  Column(
-    modifier = Modifier.fillMaxHeight().background(MaterialTheme.colorScheme.background),
-  ) {
-    AutomationsTopBar(
-      title = "Automations",
-      buttons = listOf {
-        AutomationsAccountButton(
-          homeAppVM = homeAppVM,
-          onNavigateToUserManagement = onNavigateToUserManagement,
-          onNavigateToPresenceSettings = onNavigateToPresenceSettings,
-        )
-      },
-    )
+  val structureVMs: List<StructureViewModel> = homeAppVM.structureVMs.collectAsState().value
+  val selectedStructureVM: StructureViewModel? =
+    homeAppVM.selectedStructureVM.collectAsState().value
+  val structureName: String =
+    selectedStructureVM?.name ?: stringResource(R.string.automations_text_loading)
 
-    Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-      Column(
-        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())
-          .padding(horizontal = 16.dp, vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-      ) {
-        Column(Modifier.padding(horizontal = 4.dp)) {
-          Text("Make your home work for you", style = MaterialTheme.typography.headlineSmall)
-          Text(
-            "Create routines for the moments you repeat every day.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-          )
-        }
+  Column(modifier = Modifier.fillMaxHeight()) {
+    AutomationsTopBar("", listOf { AutomationsAccountButton(homeAppVM, onNavigateToUserManagement, onNavigateToPresenceSettings) })
 
-        Box {
-          OutlinedButton(
-            onClick = { structureMenuExpanded = true },
-            modifier = Modifier.fillMaxWidth(),
-            shape = MaterialTheme.shapes.medium,
-          ) {
-            Text(
-              structureName,
-              modifier = Modifier.weight(1f),
-              style = MaterialTheme.typography.titleMedium,
-            )
-            Icon(Icons.Default.ArrowDropDown, contentDescription = null)
-          }
-          DropdownMenu(
-            expanded = structureMenuExpanded,
-            onDismissRequest = { structureMenuExpanded = false },
-          ) {
-            structureVMs.forEach { structure ->
-              val presence by structure.presenceState.collectAsState()
-              DropdownMenuItem(
-                text = { Text("${structure.name} · $presence") },
-                onClick = {
-                  homeAppVM.setSelectedStructure(structure)
-                  structureMenuExpanded = false
-                },
-              )
+    Box(modifier = Modifier.weight(1f)) {
+      Column {
+        Row(horizontalArrangement = Arrangement.Center, modifier = Modifier.fillMaxWidth()) {
+          if (structureVMs.size > 1) {
+            TextButton(onClick = { expanded = true }) {
+              Text(text = "$structureName ▾", fontSize = 32.sp)
+            }
+          } else {
+            TextButton(onClick = { expanded = true }) {
+              Text(text = structureName, fontSize = 32.sp)
             }
           }
         }
 
-        AutomationListComponent(homeAppVM)
+        Row(horizontalArrangement = Arrangement.Center, modifier = Modifier.fillMaxWidth()) {
+          Box {
+            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+              for (structure in structureVMs) {
+                val presence by structure.presenceState.collectAsState()
+                DropdownMenuItem(
+                  text = { Text("${structure.name} ($presence)") },
+                  onClick = {
+                    homeAppVM.setSelectedStructure(structure)
+                    expanded = false
+                  },
+                )
+              }
+            }
+          }
+        }
+
+        Column(
+          modifier =
+            Modifier.verticalScroll(rememberScrollState()).weight(weight = 1f, fill = false)
+        ) {
+          AutomationListComponent(homeAppVM)
+        }
       }
 
-      ExtendedFloatingActionButton(
+      Button(
         onClick = { homeAppVM.showCandidates() },
-        modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
-        icon = { Icon(Icons.Default.Add, contentDescription = null) },
-        text = { Text("Create automation") },
-      )
+        modifier = Modifier.padding(16.dp).align(Alignment.BottomEnd),
+      ) {
+        Text("+ Create")
+      }
     }
 
     TabbedMenuView(homeAppVM)
@@ -165,76 +214,64 @@ fun AutomationsView(
 @Composable
 fun AutomationListItem(automationVM: AutomationViewModel, homeAppVM: HomeAppViewModel) {
   val scope: CoroutineScope = rememberCoroutineScope()
-  val automationName = automationVM.name.collectAsState().value
+
+  val automationName: String = automationVM.name.collectAsState().value
   val automationStarters: List<Starter> = automationVM.starters.collectAsState().value
   val automationActions: List<Action> = automationVM.actions.collectAsState().value
 
-  Card(
-    modifier = Modifier.fillMaxWidth().clickable {
+  val status: String =
+    "" + automationStarters.size + " starters" + " ● " + automationActions.size + " actions"
+
+  Column(
+    Modifier.padding(horizontal = 24.dp, vertical = 8.dp).fillMaxWidth().clickable {
       scope.launch { homeAppVM.selectedAutomationVM.emit(automationVM) }
-    },
-    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-  ) {
-    Column(Modifier.fillMaxWidth().padding(18.dp)) {
-      Text(automationName, style = MaterialTheme.typography.titleMedium)
-      Text(
-        "${automationStarters.size} starters · ${automationActions.size} actions",
-        style = MaterialTheme.typography.bodyMedium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-      )
     }
+  ) {
+    Text(automationName, fontSize = 20.sp)
+    Text(status, fontSize = 16.sp)
   }
 }
 
 @Composable
 fun AutomationListComponent(homeAppVM: HomeAppViewModel) {
-  val selectedStructureVM = homeAppVM.selectedStructureVM.collectAsState().value ?: return
-  val selectedAutomationVMs = selectedStructureVM.automationVMs.collectAsState().value
 
-  Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+  val selectedStructureVM: StructureViewModel =
+    homeAppVM.selectedStructureVM.collectAsState().value ?: return
+
+  val selectedAutomationVMs: List<AutomationViewModel> =
+    selectedStructureVM.automationVMs.collectAsState().value
+
+  Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth()) {
     Text(
       stringResource(R.string.automations_title),
-      modifier = Modifier.padding(start = 4.dp),
-      style = MaterialTheme.typography.titleMedium,
+      fontSize = 16.sp,
       fontWeight = FontWeight.SemiBold,
     )
-    if (selectedAutomationVMs.isEmpty()) {
-      Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-      ) {
-        Text(
-          "No automations yet. Create one to get started.",
-          modifier = Modifier.padding(20.dp),
-          color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-      }
-    } else {
-      selectedAutomationVMs.forEach { automationVM ->
-        AutomationListItem(automationVM, homeAppVM)
-      }
-    }
+  }
+
+  for (automationVM in selectedAutomationVMs) {
+    AutomationListItem(automationVM, homeAppVM)
   }
 }
 
 @Composable
 fun AutomationsTopBar(title: String, buttons: List<@Composable () -> Unit>) {
-  Surface(
-    modifier = Modifier.fillMaxWidth(),
-    color = MaterialTheme.colorScheme.surface,
-    tonalElevation = 2.dp,
-  ) {
-    Box(Modifier.fillMaxWidth().height(72.dp).padding(horizontal = 8.dp)) {
-      Text(
-        title,
-        modifier = Modifier.align(Alignment.CenterStart).padding(start = 8.dp),
-        style = MaterialTheme.typography.titleLarge,
-      )
-      Row(
-        modifier = Modifier.align(Alignment.CenterEnd),
-        verticalAlignment = Alignment.CenterVertically,
-      ) {
-        buttons.forEach { button -> button() }
+  Box(Modifier.height(64.dp).fillMaxWidth().padding(horizontal = 16.dp)) {
+    Row(
+      Modifier.height(64.dp).fillMaxWidth().background(Color.Transparent),
+      verticalAlignment = Alignment.CenterVertically,
+      horizontalArrangement = Arrangement.Center,
+    ) {
+      Text(title, fontSize = 24.sp)
+    }
+
+    Row(
+      Modifier.height(64.dp).fillMaxWidth().background(Color.Transparent),
+      verticalAlignment = Alignment.CenterVertically,
+      horizontalArrangement = Arrangement.End,
+    ) {
+      for (button in buttons) {
+        button()
       }
     }
   }

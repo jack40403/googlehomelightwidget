@@ -51,7 +51,7 @@ class HomeApp(
     // Initialize the HomeClient, which is the primary object to use all Home APIs:
     homeClient = homeClientProvider.getClient()
 
-    // Initialize supporting classes for the Permissions API:
+    // Initialize supporting classes for Permissions and Commissioning APIs:
     Log.d(TAG, "create PermissionsManager")
     permissionsManager = PermissionsManager(scope, activity, homeClient)
   }

@@ -29,6 +29,8 @@ import com.example.googlehomeapisampleapp.view.HomeAppView
 import com.example.googlehomeapisampleapp.viewmodel.HomeAppViewModel
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 
 /**
  * The main activity of the Google Home API Sample App. This activity is responsible for
@@ -61,34 +63,44 @@ class MainActivity : ComponentActivity() {
     homeAppVM = HomeAppViewModel(homeApp, currentStructureRepository)
     Log.d(TAG, "homeAppVM created")
 
+
     // Call to make the app allocate the entire screen:
     enableEdgeToEdge()
     // Set the content of the screen to display the app:
     setContent { HomeAppView(homeAppVM) }
 
+    // Receive the intent extra data to see if it is from AccountSwitchActivity.kt
+    val isFromAccountSwitch = intent.getBooleanExtra(EXTRA_FROM_ACCOUNT_SWITCH, false)
+    Log.i(TAG, "Launched from account switch: $isFromAccountSwitch")
+
+    if (savedInstanceState != null) return
+    // Activity is fresh and newly created
+    if (isFromAccountSwitch) {
+      // After new account signed-in, it still needs to request the permission.
+      // When switching to an account gotten permissions before, it needs to wait
+      // until the permissions are fully loaded.
+      lifecycleScope.launch {
+        // Block here until permissionManager is initialized
+        homeApp.permissionsManager.isInitialized.first { it }
+        if (!homeApp.permissionsManager.isSignedIn.value) {
+          // Try to request the permission
+          Log.d(TAG, "Permissions not granted, requesting permissions")
+          homeApp.permissionsManager.requestPermissions()
+        }
+      }
+    }
     authCoordinator.onOAuthRedirect(intent)
-    handleIntent(intent)
   }
 
   override fun onNewIntent(intent: Intent) {
     super.onNewIntent(intent)
     Log.d(TAG, "onNewIntent received")
-    setIntent(intent)
     authCoordinator.onOAuthRedirect(intent)
-    handleIntent(intent)
-  }
-
-  private fun handleIntent(intent: Intent) {
-    if (intent.action == ACTION_REQUEST_HOME_PERMISSIONS) {
-      intent.action = null
-      homeAppVM.homeApp.permissionsManager.requestPermissions()
-    }
   }
 
   companion object {
     const val TAG = "MainActivity"
-    const val ACTION_REQUEST_HOME_PERMISSIONS =
-      "com.example.googlehomeapisampleapp.action.REQUEST_HOME_PERMISSIONS"
+    const val EXTRA_FROM_ACCOUNT_SWITCH = "fromAccountSwitch"
     private lateinit var logger: Logger
 
     /**

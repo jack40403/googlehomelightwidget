@@ -31,19 +31,3 @@ WEB_CLIENT_ID_DEV=你的_CLIENT_ID.apps.googleusercontent.com
 4. 長按 Android 桌面，從 Widget 清單加入「房間燈光」。
 
 目前 Widget 用來快速開啟控制面板。Android 的 AppWidget 不適合連續拖曳控制，所以下一階段會增加 Widget 設定畫面，讓每個 Widget 綁定一盞燈，並提供固定亮度／色彩捷徑。
-
-## Debug 模擬（僅 debug 版）
-
-debug 版內建 Widget 模擬入口，只能從 `adb shell` 觸發（需要 `android.permission.DUMP`，一般 App 無法呼叫）：
-
-```bash
-# 寫入模擬燈群狀態（mode: snapshot / command / power / observation）
-adb shell am broadcast -a com.example.googlehomeapisampleapp.DEBUG_SIMULATE_WIDGET \
-  -n com.example.googlehomeapisampleapp/.widget.WidgetSimulationReceiver \
-  --es mode snapshot --ei brightnessPercent 60 --ef hue 210 --ei deviceCount 6
-
-# 開啟模擬面板（釘選 Widget、模擬亮度／燈色面板）
-adb shell am start -n com.example.googlehomeapisampleapp/.widget.WidgetSimulationPinActivity
-```
-
-注意：模擬會把 Widget 目標改成「模擬燈群」，測試完請回 App 重新選擇控制目標。

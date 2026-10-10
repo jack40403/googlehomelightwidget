@@ -12,6 +12,7 @@
   <string name="tab_button_activity">Activity</string>
 
   <string name="devices_structure_loading">Loading…</string>
+  <string name="devices_button_add">+ Add Device</string>
 
   <string name="draft_title">New Automation</string>
   <string name="draft_label_name">Name</string>
